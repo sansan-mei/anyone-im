@@ -1,4 +1,4 @@
-name: Verify Relay IM
+name: Verify Anyone IM
 on:
   push:
   pull_request:
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: relay-im-${{ github.ref }}
+  group: anyone-im-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   sqlite-and-ui:
@@ -45,8 +45,8 @@ jobs:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_DATABASE: relay_ci
-          MYSQL_ROOT_PASSWORD: relay_ci_test_only
+          MYSQL_DATABASE: anyone_ci
+          MYSQL_ROOT_PASSWORD: anyone_ci_test_only
         ports:
           - 3306:3306
         options: >-
@@ -56,8 +56,8 @@ jobs:
           --health-retries=30
     env:
       DB_PROVIDER: mysql
-      DATABASE_URL: mysql://root:relay_ci_test_only@127.0.0.1:3306/relay_ci
-      RELAY_E2E_MYSQL: '1'
+      DATABASE_URL: mysql://root:anyone_ci_test_only@127.0.0.1:3306/anyone_ci
+      ANYONE_E2E_MYSQL: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -81,5 +81,5 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --tag relay-im:ci .
-      - run: bash scripts/ci-container-smoke.sh relay-im:ci
+      - run: docker build --tag anyone-im:ci .
+      - run: bash scripts/ci-container-smoke.sh anyone-im:ci

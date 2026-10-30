@@ -3,7 +3,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { RateLimitKind } from './security'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER } from '@relay-im/contracts'
+import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { Attachments } from './attachments'
 import { createRealtime } from './realtime'
@@ -31,7 +31,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 })
   const provider = options.databaseProvider ?? process.env.DB_PROVIDER ?? 'sqlite'
   if (provider !== 'sqlite' && provider !== 'mysql') throw new Error('Invalid DB_PROVIDER')
-  const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/relay.sqlite` : '')
+  const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/anyone.sqlite` : '')
   if (!databaseUrl) throw new Error('DATABASE_URL is required')
   const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
   const gate = createGate()
@@ -91,7 +91,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
     if (expectedUserId !== null && expectedUserId !== current.userId) return fail(409, 'SESSION_CHANGED', '登录身份已更改，请刷新后重试')
     return current
   }
-  const cookie = (token: string, clear = false) => `relay_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${clear ? 0 : 2592000}${production ? '; Secure' : ''}`
+  const cookie = (token: string, clear = false) => `anyone_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${clear ? 0 : 2592000}${production ? '; Secure' : ''}`
   async function establish(userId: string, oldHash: string | null) {
     const token = randomToken()
     await db.$transaction(async tx => {

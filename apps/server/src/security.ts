@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { User } from '@relay-im/contracts'
+import type { User } from '@anyone-im/contracts'
 
 export class ApiFailure extends Error {
   constructor(public status: number, public code: string, message: string) { super(message) }
@@ -14,7 +14,7 @@ export const randomToken = () => randomBytes(32).toString('base64url')
 export const hashToken = (value: string) => createHash('sha256').update(value).digest('hex')
 export const userDto = (u: { id: string; displayName: string; username: string | null; isGuest: boolean }): User => ({ id: u.id, displayName: u.displayName, username: u.username, isGuest: u.isGuest })
 export function sessionHash(cookie: string | null): string | null {
-  const token = cookie?.split(';').map(v => v.trim()).find(v => v.startsWith('relay_session='))?.slice('relay_session='.length)
+  const token = cookie?.split(';').map(v => v.trim()).find(v => v.startsWith('anyone_session='))?.slice('anyone_session='.length)
   return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? hashToken(token) : null
 }
 export const DEFAULT_BODY_READ_TIMEOUT_MS = 30000

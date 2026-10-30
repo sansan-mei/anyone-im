@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createTestEnvironment } from './e2e-environment'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const directory = await mkdtemp(join(tmpdir(), 'relay-im-e2e-'))
+const directory = await mkdtemp(join(tmpdir(), 'anyone-im-e2e-'))
 const env = createTestEnvironment(process.env, directory)
 env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ''}`
 let child: ReturnType<typeof Bun.spawn> | undefined
@@ -25,7 +25,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 try {
   for (const script of ['db:generate', 'db:push']) {
-    const setup = Bun.spawn([process.execPath, 'run', '--filter', '@relay-im/server', script], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })
+    const setup = Bun.spawn([process.execPath, 'run', '--filter', '@anyone-im/server', script], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })
     if (await setup.exited !== 0) throw new Error(`Isolated E2E setup failed: ${script}`)
   }
   child = Bun.spawn([process.execPath, 'run', 'apps/server/src/index.ts'], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })

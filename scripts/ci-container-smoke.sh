@@ -6,7 +6,7 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" || -z "${RUNNER_TEMP:-}" ]]; then
   printf '%s\n' 'Refusing container smoke test outside GitHub Actions.' >&2
   exit 2
 fi
-image="${1:-relay-im:ci}"
+image="${1:-anyone-im:ci}"
 work="$(mktemp -d "${RUNNER_TEMP}/anyone-container.XXXXXX")"
 prefix="anyone-ci-$(basename "$work" | tr '[:upper:]' '[:lower:]')"
 network_id='' db_id='' app_id='' data_volume='' uploads_volume=''
@@ -33,7 +33,7 @@ data_volume="$(docker volume create "${prefix}-database")"
 uploads_volume="$(docker volume create "${prefix}-uploads")"
 db_id="$(docker run -d --network "$network_id" --network-alias db \
   --memory 768m -v "${data_volume}:/var/lib/mysql" \
-  -e MYSQL_DATABASE=relay_ci -e MYSQL_USER=relay \
+  -e MYSQL_DATABASE=anyone_ci -e MYSQL_USER=anyone \
   -e MYSQL_PASSWORD=ci_smoke_only -e MYSQL_ROOT_PASSWORD=ci_smoke_root_only \
   mysql:8.4 --innodb-buffer-pool-size=128M --performance-schema=OFF --max-connections=30)"
 for attempt in {1..90}; do
@@ -43,7 +43,7 @@ for attempt in {1..90}; do
 done
 runtime_env=(
   -e NODE_ENV=production -e DB_PROVIDER=mysql
-  -e DATABASE_URL=mysql://relay:ci_smoke_only@db:3306/relay_ci
+  -e DATABASE_URL=mysql://anyone:ci_smoke_only@db:3306/anyone_ci
   -e DATA_DIR=/data -e HOST=0.0.0.0 -e PORT=4100
   -e PUBLIC_ORIGIN=https://im.example.test
 )

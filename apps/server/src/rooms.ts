@@ -1,4 +1,4 @@
-import type { Message as MessageDTO, RoomSummary, Attachment as AttachmentDTO, SendMessageInput, MessagePage } from '@relay-im/contracts'
+import type { Message as MessageDTO, RoomSummary, Attachment as AttachmentDTO, SendMessageInput, MessagePage } from '@anyone-im/contracts'
 import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
 

@@ -1,6 +1,6 @@
-# Relay IM v1 integration contract (frozen for parallel implementation)
+# Anyone IM v1 integration contract (frozen for parallel implementation)
 
-Root owns this document and packages/contracts. API responses use `{data:T}` or HTTP error `{error:{code,message}}`. Shared interfaces in `@relay-im/contracts` are canonical. All date fields are ISO strings. IDs opaque strings; client message IDs UUID. Session cookie `relay_session` is opaque, HttpOnly, SameSite=Lax, Secure in production; never put it in URLs/localStorage.
+Root owns this document and packages/contracts. API responses use `{data:T}` or HTTP error `{error:{code,message}}`. Shared interfaces in `@anyone-im/contracts` are canonical. All date fields are ISO strings. IDs opaque strings; client message IDs UUID. Session cookie `anyone_session` is opaque, HttpOnly, SameSite=Lax, Secure in production; never put it in URLs/localStorage.
 
 ## Deployment / storage
 

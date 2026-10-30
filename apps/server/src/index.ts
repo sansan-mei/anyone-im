@@ -4,7 +4,7 @@ export type { ApplicationOptions } from './app'
 
 if (import.meta.main) {
   const application = await createApplication()
-  console.log(`Relay listening at ${application.url}`)
+  console.log(`Anyone listening at ${application.url}`)
   const stop = async () => { await application.close(); process.exit(0) }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)

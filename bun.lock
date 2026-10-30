@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "relay-im",
+      "name": "anyone-im",
       "devDependencies": {
         "@playwright/test": "1.64.1",
         "@types/bun": "^1.4.2",
@@ -11,11 +11,11 @@
       },
     },
     "apps/server": {
-      "name": "@relay-im/server",
+      "name": "@anyone-im/server",
       "version": "0.1.0",
       "dependencies": {
         "@prisma/client": "6.19.3",
-        "@relay-im/contracts": "workspace:*",
+        "@anyone-im/contracts": "workspace:*",
         "@socket.io/bun-engine": "0.1.2",
         "hono": "^4.8.5",
         "socket.io": "^4.8.1",
@@ -26,12 +26,12 @@
       },
     },
     "apps/web": {
-      "name": "@relay-im/web",
+      "name": "@anyone-im/web",
       "version": "0.1.0",
       "dependencies": {
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
-        "@relay-im/contracts": "workspace:*",
+        "@anyone-im/contracts": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.525.0",
@@ -50,7 +50,7 @@
       },
     },
     "packages/contracts": {
-      "name": "@relay-im/contracts",
+      "name": "@anyone-im/contracts",
       "version": "0.1.0",
       "dependencies": {
         "zod": "^4.0.0",
@@ -246,11 +246,11 @@
 
     "@radix-ui/rect": ["@radix-ui/rect@1.1.3", "", {}, "sha512-JtyZR+mqgBibTo8xea3B6ZRmzZiM/YeVBtUkas6zMuXjAlfIFIW2FgqeM9eLyvEaYX66vr6DJMK+4U6LV0KhNw=="],
 
-    "@relay-im/contracts": ["@relay-im/contracts@workspace:packages/contracts"],
+    "@anyone-im/contracts": ["@anyone-im/contracts@workspace:packages/contracts"],
 
-    "@relay-im/server": ["@relay-im/server@workspace:apps/server"],
+    "@anyone-im/server": ["@anyone-im/server@workspace:apps/server"],
 
-    "@relay-im/web": ["@relay-im/web@workspace:apps/web"],
+    "@anyone-im/web": ["@anyone-im/web@workspace:apps/web"],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-beta.27", "", {}, "sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA=="],
 

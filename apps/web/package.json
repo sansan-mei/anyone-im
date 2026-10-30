@@ -1,5 +1,5 @@
 {
-  "name": "@relay-im/web",
+  "name": "@anyone-im/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
-    "@relay-im/contracts": "workspace:*",
+    "@anyone-im/contracts": "workspace:*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "socket.io-client": "^4.8.1",

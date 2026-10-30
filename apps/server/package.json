@@ -1,5 +1,5 @@
 {
-  "name": "@relay-im/server",
+  "name": "@anyone-im/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "db:push": "bun scripts/database.ts push"
   },
   "dependencies": {
-    "@relay-im/contracts": "workspace:*",
+    "@anyone-im/contracts": "workspace:*",
     "@prisma/client": "6.19.3",
     "@socket.io/bun-engine": "0.1.2",
     "hono": "^4.8.5",

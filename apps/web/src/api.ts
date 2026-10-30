@@ -1,4 +1,4 @@
-import { EXPECTED_USER_HEADER, type Result } from '@relay-im/contracts'
+import { EXPECTED_USER_HEADER, type Result } from '@anyone-im/contracts'
 export class ApiFailure extends Error { constructor(public code: string, message: string, public status: number) { super(message) } }
 export const SESSION_CHANGED_TEXT = '会话已变化。为保护未发送内容，已关闭旧会话；请重新确认身份后继续。'
 type Request = <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => Promise<T>

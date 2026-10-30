@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { RoomSummary } from '@relay-im/contracts'
+import type { RoomSummary } from '@anyone-im/contracts'
 import { LockKeyhole, Globe2, ArrowUpRight } from 'lucide-react'
 import { errorText } from './api'
 import { useApi } from './SessionContext'

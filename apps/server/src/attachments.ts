@@ -1,6 +1,6 @@
 import { mkdir, open, unlink } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { MAX_ATTACHMENT_BYTES } from '@relay-im/contracts'
+import { MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms, attachmentDto } from './rooms'
 import { fail, randomToken, readLimited } from './security'
 

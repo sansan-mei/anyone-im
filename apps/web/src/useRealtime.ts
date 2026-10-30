@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import type { ClientToServerEvents, MessagePage, Result, ServerToClientEvents } from '@relay-im/contracts'
+import type { ClientToServerEvents, MessagePage, Result, ServerToClientEvents } from '@anyone-im/contracts'
 import type { MessageState } from './Chat'
 import { errorText } from './api'
 import { useApi } from './SessionContext'

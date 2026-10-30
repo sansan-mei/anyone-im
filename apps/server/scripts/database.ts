@@ -8,7 +8,7 @@ if (operation !== 'generate' && operation !== 'push') throw new Error('Usage: bu
 const root = resolve(import.meta.dir, '..')
 const dataDir = resolve(process.env.DATA_DIR ?? resolve(root, '../../.data'))
 await mkdir(dataDir, { recursive: true, mode: 0o700 })
-const url = process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/relay.sqlite` : '')
+const url = process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/anyone.sqlite` : '')
 if (!url) throw new Error('DATABASE_URL is required for mysql')
 if (provider === 'sqlite' && url.startsWith('file:')) await mkdir(dirname(url.slice(5)), { recursive: true, mode: 0o700 })
 const schema = resolve(root, `prisma/${provider}.prisma`)

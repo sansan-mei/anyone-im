@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { SessionData, User } from '@relay-im/contracts'
+import type { SessionData, User } from '@anyone-im/contracts'
 import { ArrowUpRight } from 'lucide-react'
 import { publicApi as api, createSessionApi, errorText, SESSION_CHANGED_TEXT, type SessionApi } from './api'
 import { SessionContext } from './SessionContext'
@@ -14,12 +14,12 @@ export default function App() {
   const invalidate = useCallback(() => { epoch.current++; sessionRef.current?.dispose(); setUser(null); setPassword(''); setBusy(false); setStale(true) }, [])
   const announce = () => {
     channel.current?.postMessage('changed')
-    try { localStorage.setItem('relay.account-change', crypto.randomUUID()) } catch { /* BroadcastChannel remains available when storage is blocked. */ }
+    try { localStorage.setItem('anyone.account-change', crypto.randomUUID()) } catch { /* BroadcastChannel remains available when storage is blocked. */ }
   }
   useEffect(() => {
     const changed = () => invalidate()
-    const storage = (event: StorageEvent) => { if (event.key === 'relay.account-change') changed() }
-    if (typeof BroadcastChannel !== 'undefined') { channel.current = new BroadcastChannel('relay.account-change'); channel.current.onmessage = event => { if (event.data === 'changed') changed() } }
+    const storage = (event: StorageEvent) => { if (event.key === 'anyone.account-change') changed() }
+    if (typeof BroadcastChannel !== 'undefined') { channel.current = new BroadcastChannel('anyone.account-change'); channel.current.onmessage = event => { if (event.data === 'changed') changed() } }
     window.addEventListener('storage', storage)
     return () => { window.removeEventListener('storage', storage); channel.current?.close(); channel.current = null }
   }, [invalidate])
@@ -43,7 +43,7 @@ export default function App() {
   useEffect(() => {
     const attempt = epoch.current
     api<SessionData>('/session').then(s => { if (attempt === epoch.current) setUser(s.user) }).catch(e => { if (attempt === epoch.current) setError(errorText(e)) }).finally(() => setBooting(false))
-    try { document.documentElement.dataset.theme = localStorage.getItem('relay.theme') || 'system' } catch { /* optional preferences */ }
+    try { document.documentElement.dataset.theme = localStorage.getItem('anyone.theme') || 'system' } catch { /* optional preferences */ }
   }, [])
   if (booting) return <div className="boot"><Brand/><p role="status">正在连接你的会话…</p></div>
   if (stale) return <main className="boot"><Brand/><p role="alert">{SESSION_CHANGED_TEXT}</p>{error && <p role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => void confirmSession()}>重新确认身份</button></main>

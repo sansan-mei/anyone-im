@@ -83,7 +83,7 @@ test('cross-tab cookie switch never publishes A outbox content as B even without
     { owner: user.id, expected: user.id, text: 'A 的私密待发送内容' },
     { owner: server.peer.id, expected: user.id, text: 'A 的私密待发送内容' },
   ])
-  const saved = await page.evaluate(id => JSON.parse(localStorage.getItem(`relay.outbox.${id}`) || '[]'), user.id)
+  const saved = await page.evaluate(id => JSON.parse(localStorage.getItem(`anyone.outbox.${id}`) || '[]'), user.id)
   expect(saved).toHaveLength(1)
   expect(saved[0].state).toBe('failed')
   await page.getByRole('button', { name: '重新确认身份' }).click()
@@ -112,7 +112,7 @@ test('first-party logout and login in another tab immediately invalidate the old
   await expect(page.getByText('仍属于 A 的发件箱')).toHaveCount(0)
   expect(server.attempts).toHaveLength(1)
   expect(server.published).toEqual([])
-  const eventValue = await page.evaluate(() => localStorage.getItem('relay.account-change'))
+  const eventValue = await page.evaluate(() => localStorage.getItem('anyone.account-change'))
   expect(eventValue).toBeTruthy()
   expect(eventValue).not.toContain(user.id)
   expect(eventValue).not.toContain(server.peer.id)
@@ -204,7 +204,7 @@ for (const pending of ['upload', 'send', 'rooms'] as const) {
     await page.getByTestId('send-message').click()
     await expect.poll(() => server.published).toEqual([`${server.peer.id}:B 的新内容`])
     if (pending === 'send') {
-      const saved = await page.evaluate(id => JSON.parse(localStorage.getItem(`relay.outbox.${id}`) || '[]'), user.id)
+      const saved = await page.evaluate(id => JSON.parse(localStorage.getItem(`anyone.outbox.${id}`) || '[]'), user.id)
       expect(saved).toHaveLength(1); expect(saved[0].state).toBe('failed')
     }
   })

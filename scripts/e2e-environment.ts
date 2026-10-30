@@ -4,9 +4,9 @@ export function createTestEnvironment(base: Record<string, string | undefined>, 
   const env: TestEnvironment = Object.fromEntries(Object.entries(base).filter((pair): pair is [string, string] => pair[1] !== undefined))
   const mysql = base.DB_PROVIDER === 'mysql'
   if (mysql) {
-    if (base.RELAY_E2E_MYSQL !== '1') throw new Error('MySQL E2E requires explicit RELAY_E2E_MYSQL=1')
+    if (base.ANYONE_E2E_MYSQL !== '1') throw new Error('MySQL E2E requires explicit ANYONE_E2E_MYSQL=1')
     const url = new URL(base.DATABASE_URL ?? '')
-    if (url.protocol !== 'mysql:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/(relay_ci|relay_test_[a-z0-9_]+)$/.test(url.pathname)) {
+    if (url.protocol !== 'mysql:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/(anyone_ci|anyone_test_[a-z0-9_]+)$/.test(url.pathname)) {
       throw new Error('Refusing non-loopback or non-test MySQL database')
     }
   }

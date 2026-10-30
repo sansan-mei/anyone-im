@@ -1,6 +1,6 @@
 # anyone-im backend
 
-Internal workspace name remains `@relay-im/server`; public protocol and cookie names remain frozen by `docs/integration-contract.md`.
+Internal workspace name remains `@anyone-im/server`; public protocol and cookie names remain frozen by `docs/integration-contract.md`.
 
 ## Parent integration / startup
 
@@ -9,14 +9,14 @@ From the repository root (Bun must be on PATH):
 ```sh
 export DB_PROVIDER=sqlite
 export DATA_DIR=/absolute/path/to/isolated-data
-export DATABASE_URL="file:${DATA_DIR}/relay.sqlite"
+export DATABASE_URL="file:${DATA_DIR}/anyone.sqlite"
 export HOST=127.0.0.1 PORT=4190
 export PUBLIC_ORIGIN=http://127.0.0.1:4190
 export NODE_ENV=test
 # Optional for many real browser accounts within one test minute:
 export RATE_LIMIT_AUTH_MAX=100
-bun run --filter @relay-im/server db:generate
-bun run --filter @relay-im/server db:push
+bun run --filter @anyone-im/server db:generate
+bun run --filter @anyone-im/server db:push
 bun run apps/server/src/index.ts
 ```
 
@@ -45,8 +45,8 @@ export DATA_DIR=/data
 export HOST=0.0.0.0 PORT=4100
 export NODE_ENV=production
 export PUBLIC_ORIGIN=https://YOUR_IM_SUBDOMAIN
-bun run --filter @relay-im/server db:generate
-bun run --filter @relay-im/server db:push
+bun run --filter @anyone-im/server db:generate
+bun run --filter @anyone-im/server db:push
 bun run apps/server/src/index.ts
 # Alternatively, after build: bun apps/server/dist/index.js
 ```
@@ -81,7 +81,7 @@ Environment:
 | Variable | Default / behavior |
 | --- | --- |
 | `DB_PROVIDER` | `sqlite`; `mysql` requires explicit `DATABASE_URL` |
-| `DATABASE_URL` | SQLite defaults to absolute `${DATA_DIR}/relay.sqlite`; use absolute `file:` URLs for reproducible paths |
+| `DATABASE_URL` | SQLite defaults to absolute `${DATA_DIR}/anyone.sqlite`; use absolute `file:` URLs for reproducible paths |
 | `DATA_DIR` | repository `.data`; uploads are private files under `uploads/` |
 | `HOST`, `PORT` | `127.0.0.1`, `4100`; `port:0` supported in factory and environment |
 | `PUBLIC_ORIGIN` | required in production; exact origin, no trailing slash; otherwise actual listener origin |

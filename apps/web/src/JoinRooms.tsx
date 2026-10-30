@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { InvitePreview, RoomSummary } from '@relay-im/contracts'
+import type { InvitePreview, RoomSummary } from '@anyone-im/contracts'
 import { Globe2, Hash, ArrowUpRight, Link } from 'lucide-react'
 import { errorText } from './api'
 import { useApi } from './SessionContext'

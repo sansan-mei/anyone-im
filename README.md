@@ -1,6 +1,6 @@
 # Anyone IM
 
-独立部署、移动优先的房间聊天室。前端 React + Vite + Tailwind/Radix，后端 Bun + Hono + Socket.IO，持久化使用 Prisma。生产使用独立 MySQL；本地开发和测试默认 SQLite。
+独立部署、移动优先的房间聊天室。前端 React + Vite + Tailwind/Radix，后端 Bun + Hono + Socket.IO，持久化使用 Prisma。生产复用现有 MySQL，使用独立数据库与账号；本地开发和测试默认 SQLite。
 
 [![CI](https://github.com/sansan-mei/anyone-im/actions/workflows/ci.yml/badge.svg)](https://github.com/sansan-mei/anyone-im/actions/workflows/ci.yml)
 
@@ -16,9 +16,9 @@
 
 ## 端口
 
-- **正式服务：4100**，同一端口提供网页、HTTP API 和 Socket.IO，支持 `PORT` / Compose `IM_PORT` 配置。
+- **正式服务：4100**，同一端口提供网页、HTTP API 和 Socket.IO。
 - 开发页面：4101；真实 E2E 临时服务：4190。
-- Compose 内部 MySQL 不发布宿主机端口，不占用现有的宿主机 3306。
+- 镜像为 `1596944197/anyone-im`；简化 Compose 不创建 MySQL、不声明 networks，沿用生产 `default` 项目的默认网络。
 - 默认只把应用发布到宿主机 `127.0.0.1:4100`。部署前仍应检查端口，不能假定某个端口永远空闲。
 
 ## 本地运行
@@ -55,13 +55,13 @@ bunx playwright install chromium
 bun run test:e2e
 ```
 
-根目录的 E2E 使用真实后端、真实 SQLite 和浏览器，不是假聊天 API。测试进程会创建隔离临时目录，结束时清理，并禁止复用已有的测试服务。默认不会继承外部 `DATABASE_URL`；MySQL E2E 必须显式选择，并只允许 loopback 上的 `relay_ci` / `relay_test_*` 测试库。
+根目录的 E2E 使用真实后端、真实 SQLite 和浏览器，不是假聊天 API。测试进程会创建隔离临时目录，结束时清理，并禁止复用已有的测试服务。默认不会继承外部 `DATABASE_URL`；MySQL E2E 必须显式选择，并只允许 loopback 上的 `anyone_ci` / `anyone_test_*` 测试库。
 
 CI 分别验证 SQLite/浏览器、真实 MySQL/浏览器以及 Docker 镜像构建和临时容器运行。容器烟测使用隔离网络与新命名卷，检查非 root、生产 Cookie、MySQL、图片写入和容器重启后的持久化；烟测脚本拒绝在 GitHub Actions 以外直接运行。后端测试还有真实 Socket.IO、权限隔离、重启持久化和故障注入验证。详见 [后端说明](apps/server/README.md)。
 
 ## 二级域名部署
 
-见 **[docs/deployment.md](docs/deployment.md)**：独立 Compose、HTTPS、WebSocket 反向代理、容器化 Nginx 接入、首次建表与备份。
+见 **[docs/deployment.md](docs/deployment.md)**：`im.mh33.top`、现有 Docker MySQL 的独立库/账号、简化 Compose、HTTPS/WebSocket、首次建表与备份。
 
 仓库不会自动部署到生产服务器，不会改旧站路由、现有 Nginx、DNS 或已有 Docker 服务。上线需要另行配置二级域名和证书。
 
@@ -73,4 +73,4 @@ CI 分别验证 SQLite/浏览器、真实 MySQL/浏览器以及 Docker 镜像构
 - 反向代理后的 IP 限制默认按直接对端计算，不信任任意 `X-Forwarded-For`；公网入口还应设置连接/请求限制。
 - 根 `deepmerge-ts:8.0.2` override 修补 Prisma 6 CLI 的递归合并漏洞（GHSA-ggr8-5vv4-36mx）；保留 Prisma 6 的生成/运行接口，并通过 generate/push 和集成测试验证兼容性，不忽略告警。
 
-内部 workspace 名 `@relay-im/*`、协议 Cookie `relay_session` 和本地旧目录名是稳定的内部标识，与 GitHub 仓库名不同，不影响二级域名或品牌名 Anyone。
+项目 workspace 统一使用 `@anyone-im/*`，会话 Cookie 为 `anyone_session`，测试开关为 `ANYONE_E2E_MYSQL`。

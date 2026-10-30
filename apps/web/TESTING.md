@@ -1,6 +1,6 @@
 # Anyone IM frontend handoff
 
-All implementation lives in `apps/web`. Package/protocol identifiers remain `@relay-im/*`; visible branding is Anyone / Anyone IM.
+All implementation lives in `apps/web`. Package/protocol identifiers remain `@anyone-im/*`; visible branding is Anyone / Anyone IM.
 
 ## Verification
 
@@ -34,7 +34,7 @@ Screenshots (fixture-driven visual evidence, not production conversations):
 ## State and limitations
 
 - Sending uses canonical HTTP POST; receiving, presence, room updates and catch-up use typed Socket.IO events. Acknowledged messages use server sender/timestamp/sequence only.
-- Failed/unconfirmed outbox entries survive refresh in `relay.outbox.<server-user-id>` with their original client UUID, and require explicit retry. This stores message content and attachment metadata locally, not credentials. If browser storage is unavailable the UI explicitly warns that persistence cannot be guaranteed.
+- Failed/unconfirmed outbox entries survive refresh in `anyone.outbox.<server-user-id>` with their original client UUID, and require explicit retry. This stores message content and attachment metadata locally, not credentials. If browser storage is unavailable the UI explicitly warns that persistence cannot be guaranteed.
 - Theme is local preference; authentication remains server-owned HttpOnly cookies. No passwords/tokens/session cookies are read or stored by the frontend.
 - Unsaved text drafts and not-yet-uploaded image files do not survive a refresh or a room switch. Failed **sent** outbox entries do survive refresh. Guest logout may make that guest identity unrecoverable; the UI warns about it.
 - Virtual-keyboard layout was checked with reduced VisualViewport geometry in Chromium, not on a physical iOS/Android device. Safari/WebKit device testing remains with integration QA.

@@ -1,7 +1,7 @@
 import { Server as Engine } from '@socket.io/bun-engine'
 import { Server, type Socket } from 'socket.io'
-import { socketSendMessageSchema } from '@relay-im/contracts'
-import type { ClientToServerEvents, ServerToClientEvents, Result } from '@relay-im/contracts'
+import { socketSendMessageSchema } from '@anyone-im/contracts'
+import type { ClientToServerEvents, ServerToClientEvents, Result } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { ApiFailure, errorBody, fail, parse, sessionHash } from './security'
 

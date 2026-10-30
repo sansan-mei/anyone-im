@@ -1,62 +1,16 @@
-name: relay-im
+# Share the existing production Compose project/default network and MySQL.
+name: default
 services:
-  relay-im:
-    build: .
-    image: relay-im:local
+  anyone-im:
+    image: 1596944197/anyone-im:latest
+    container_name: anyone-im
     restart: unless-stopped
     init: true
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${IM_PORT:-4100}:4100"
-    environment:
-      NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: "4100"
-      DB_PROVIDER: mysql
-      DATABASE_URL: "mysql://relay:${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}@db:3306/relay_im"
-      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:?Set your HTTPS subdomain in .env}"
-      DATA_DIR: /data
-    volumes:
-      - uploads:/data
-    networks:
-      - edge
-      - database
-    depends_on:
-      db:
-        condition: service_healthy
     mem_limit: 384m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-  db:
-    image: mysql:8.4
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: relay_im
-      MYSQL_USER: relay
-      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
-    command: ["--innodb-buffer-pool-size=128M", "--performance-schema=OFF", "--max-connections=50"]
+    env_file: .env
+    ports:
+      - "127.0.0.1:4100:4100"
     volumes:
-      - database:/var/lib/mysql
-    networks:
-      - database
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-    mem_limit: 768m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - anyone-im-data:/data
 volumes:
-  uploads:
-  database:
-networks:
-  edge:
-  database:
-    internal: true
+  anyone-im-data:

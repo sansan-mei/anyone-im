@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { User, RoomSummary } from '@relay-im/contracts'
+import type { User, RoomSummary } from '@anyone-im/contracts'
 import { Hash, LockKeyhole, MessageSquare, Plus, Search, Settings2, Ellipsis, ArrowLeft, Compass } from 'lucide-react'
 import { errorText } from './api'
 import { useApi } from './SessionContext'

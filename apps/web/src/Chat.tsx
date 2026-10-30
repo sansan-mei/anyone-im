@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, MessageSquare, RotateCcw, ImagePlus, ImageIcon, X, Trash2 } from 'lucide-react'
-import type { Attachment, Message, RoomSummary, User } from '@relay-im/contracts'
+import type { Attachment, Message, RoomSummary, User } from '@anyone-im/contracts'
 import type { useMessages } from './useMessages'
 import { errorText } from './api'
 import { useApi } from './SessionContext'

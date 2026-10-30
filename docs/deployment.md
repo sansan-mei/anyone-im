@@ -1,85 +1,68 @@
-# 用二级域名部署 Anyone IM
+# 生产接入：现有 Docker MySQL + Nginx
 
-本文件是部署说明，不会自动修改当前生产机。下面用 `im.example.com` 举例，换成实际域名。应用默认端口 **4100**；网页、API 和 Socket.IO 共用这个端口。
+正式入口：`https://im.mh33.top`。镜像：`1596944197/anyone-im:latest`。
 
-## 1. 部署前
+## 简化 Compose
 
-- DNS 指向服务器，申请覆盖该二级域名的 HTTPS 证书。
-- 检查宿主机监听端口和 Docker 端口映射，确认 4100 没有被新服务占用；需要时在 `.env` 修改 `IM_PORT`。
-- 检查剩余内存、磁盘和备份空间。默认 Compose 新起独立 MySQL（不映射宿主机 3306），数据库内存上限 768MiB、应用 384MiB；不是容量保证，按实际负载调整。
-- 不要直接给应用现有业务库的 root 凭据。如复用已有 MySQL，另建独立数据库和最小权限账号，并另行调整 Compose，不要运行任何 reset 或接受数据丢失的选项。
+`compose.yaml` 只运行 IM，不创建 MySQL，也不声明 `networks`。`name: default` 与现有生产 Compose 项目一致，因此自动使用已经存在的 `default_default` 网络，容器通过 `mysql:3306` 访问数据库，Nginx 通过 `anyone-im:4100` 反代。
 
-## 2. 配置与首次启动
+- 不要执行整个生产项目的 `down`，不要使用 `--remove-orphans`。
+- 仅操作新服务：`docker compose up -d --no-deps anyone-im`。
+- `127.0.0.1:4100` 只作为宿主机诊断入口；公网走现有 Nginx 的 443。
+- 数据卷是 `default_anyone-im-data`，映射 `/data`；镜像的非 root 用户拥有初始目录。
+- 应用内存上限 384MiB；第一版保持单实例。
 
-```sh
-git clone https://github.com/sansan-mei/anyone-im.git
-cd anyone-im
-cp .env.example .env
-```
+## 配置
 
-编辑 `.env`：
+独立使用本仓库 Compose 时，将 `.env.example` 复制为 `.env` 并填写 `DATABASE_URL`。合入旧站生产 Compose 时，服务从 `/anyone-im.env` 读取同样的环境配置，该文件权限应为 `0600`，不得提交到 Git。
 
 ```dotenv
-PUBLIC_ORIGIN=https://im.example.com
-IM_PORT=4100
-BIND_ADDRESS=127.0.0.1
-MYSQL_PASSWORD=自行生成的随机十六进制密码
-MYSQL_ROOT_PASSWORD=另一份随机十六进制密码
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=4100
+DB_PROVIDER=mysql
+PUBLIC_ORIGIN=https://im.mh33.top
+DATA_DIR=/data
+DATABASE_URL=mysql://anyone_im:URL编码后的独立随机密码@mysql:3306/anyone_im
 ```
 
-两份密码应独立生成并妥善保存，例如使用 `openssl rand -hex 24`。这里建议十六进制，避免手写数据库 URL 时的编码歧义。仓库没有默认生产密码，空密码会让 Compose 配置检查失败。不要把 `.env` 提交到 Git。
+只填写新建的 `anyone_im` 数据库专用账号，不复用其他业务库或 root 账号。建库和首次建表是显式管理员步骤；不要执行 reset、force-reset 或 accept-data-loss。首次建表只需要在新库临时授权 CREATE/ALTER/INDEX/REFERENCES，完成后撤销，运行账号仅保留 SELECT/INSERT/UPDATE/DELETE。后续 schema 升级也必须经管理员审查和备份。
+
+## 镜像和启动
+
+以下构建和推送命令**只在用户构建机执行，不在生产服务器执行**。生产服务器只拉取、运行镜像。
 
 ```sh
-docker compose build
-docker compose up -d db
-# 独立数据库首次建表；生成过 MySQL client 的镜像运行，不触碰其他库。
-docker compose run --rm relay-im bun run db:push
-docker compose up -d relay-im
+# 在用户构建机发布 amd64 镜像及 latest（生产机是 x86_64）。
+docker buildx build --platform linux/amd64 -t 1596944197/anyone-im:latest --push .
+
+# 以下命令才在生产服务器执行；不创建或重启 mysql/nginx。
+docker compose -f /docker-compose.yaml -p default pull anyone-im
+docker compose -f /docker-compose.yaml -p default up -d --no-deps anyone-im
 ```
 
-应用 readiness 会核查所需表，不会因为 MySQL 的 SELECT 1 成功就假装已初始化。首次建表是显式步骤；升级前先备份并审查 schema 变更。`db:push` 不使用 `--force-reset` 或 `--accept-data-loss`；如果需要破坏性更改应停止并设计迁移。
+MySQL schema 初始化必须使用生成了 MySQL Prisma client 的正式镜像，只对新库运行 `bun run db:push`。运行账号撤销 DDL 权限后不能直接用它升级 schema。
 
-默认入口只绑定在 `127.0.0.1:4100`，不会直接向公网暴露 HTTP。应用运行用户为非 root，上传目录存于独立命名卷。MySQL 只在内部 database 网络，应用还加入 edge 网络。
+## HTTPS 与 Nginx
 
-## 3. Nginx 在宿主机上
+旧站配置仓库位置：`sansan-mei/my-chatgpt-site` 的 `dev` 分支，`docker-compose/my-docker-compose.yml` 和 `docker-compose/nginx/t_nginx.conf`。生产实际入口是 `/docker-compose.yaml` 与单文件 bind mount `/mnginx.conf`。
 
-参考 [nginx.example.conf](nginx.example.conf)，upstream 使用 `127.0.0.1:4100`（如果改了 IM_PORT，相应调整）。配置里的证书路径和域名都要换成实际值。
+- 为 `im.mh33.top` 单独申请证书，使用 `/etc/letsencrypt/live/im.mh33.top/`，不覆盖旧域名证书。
+- HTTP 保留 `/.well-known/acme-challenge/`，其余跳转 HTTPS。
+- HTTPS 同域转发网页、`/api`、`/socket.io/`；设置 WebSocket Upgrade、75 秒代理读取超时、6MiB 请求限制。
+- upstream 使用 Docker DNS `127.0.0.11` 动态解析 `anyone-im:4100`，容器更新后不依赖旧 IP。
+- 修改前备份，先运行 `nginx -t`，然后平滑 reload，不重建其他容器。
+- 单文件 bind mount 的配置必须原地写入，保留 inode；原子替换宿主机文件可能使容器继续读取旧文件。
 
-先测试配置，再在获得上线授权后进行平滑 reload；不要直接替换整份已有 Nginx 主配置。
-
-## 4. Nginx 本身也在 Docker 里
-
-容器中的 `127.0.0.1` 是 Nginx 自己，不是宿主机，不能原样照抄宿主机 upstream。
-
-- 将反向代理接入这个项目的 **edge** 网络，默认名称 `relay-im_edge`。例如确认现有反向代理容器名确实为 `nginx` 后，授权部署时可执行：
-
-  ```sh
-  docker network connect relay-im_edge nginx
-  ```
-
-- 将示例 upstream 改成 `relay-im:4100`，这是 Compose 服务名。不要把反向代理接到 database 网络。
-- 该连接在 Nginx 容器被重新创建后可能丢失；稳定上线应在反向代理自己的 Compose 中声明外部 edge 网络。修改已有生产 Compose 前先复核影响并获得授权。
-- 这种接法不要求将 BIND_ADDRESS 改成 `0.0.0.0`，也不要求开放新的公网端口；只开放 HTTPS 即可。
-
-## 5. 验证
+新域名证书可独立续期；使用现有 certbot 配置和 webroot，不更改旧证书：
 
 ```sh
-docker compose ps
-curl -f http://127.0.0.1:4100/healthz
-curl -f http://127.0.0.1:4100/readyz
-curl -I https://im.example.com/
+docker compose -f /docker-compose.yaml -p default run --rm --no-deps certbot renew --cert-name im.mh33.top
+# 实际续期成功后 nginx -t，再平滑 reload。
 ```
 
-再用两个独立浏览器会话实际验证：游客进入、创建私有房间、邀请加入、双向聊天、图片读取、断线恢复、移除成员后的拒绝访问。生产 Secure Cookie 需要 HTTPS；不要为了让明文公网 HTTP 能登录而关闭 Secure。
+## 验证与回滚
 
-同域 `/api` 与 `/socket.io/` 必须正确反代。Socket.IO 需要 WebSocket Upgrade 头和足够的读取超时；不要把 `/socket.io/` 发到旧 ChatGPT 服务。
+检查 HTTPS 证书、`/readyz`，再以真实浏览器验证访客进入、私密房间邀请、双向消息、受授权图片与 WebSocket。正式 Secure Cookie 需要 HTTPS，不能为明文公网登录而关闭。
 
-## 6. 运行与备份
-
-- 本版是单应用进程；不要直接加多个应用副本，在线状态、消息通知与限流尚未分布式化。
-- 不要将 `NODE_ENV=test` 用作生产配置。正式 PUBLIC_ORIGIN 必须是实际 HTTPS origin。
-- 后端不信任任意来源的转发 IP 头；反代后认证限流按直接代理 IP 计算，应按访问规模配置入口限流及应用额度，不要无上限开放匿名注册/图片上传。
-- 附件目前验 MIME/签名/大小，不做解码重编码或病毒扫描；应配置容量监控与保留/清理策略。
-- 备份必须同时包括 MySQL 逻辑备份、上传数据卷和保管好的配置。需要一致备份时先安排短暂停写，不要在线复制 MySQL 数据目录后宣称备份一致。
-- 更新前保留上一版镜像和可恢复备份。不删除数据卷，不运行无审查的清理/覆盖命令。
-- 旧站 SSO、历史导入与 `/groupChat` 入口切换没有自动执行，应作为单独迁移步骤安排。
+备份新库、上传卷和受保护配置。回滚只切回上一版 IM 镜像及新增 Nginx 配置，不删除数据卷，不停止既有 MySQL，不对旧业务库执行结构更改。旧站 SSO、历史消息导入及 `/groupChat` 路由切换不属于此次接入。

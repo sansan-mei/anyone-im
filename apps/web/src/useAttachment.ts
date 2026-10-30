@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Attachment } from '@relay-im/contracts'
+import type { Attachment } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export function safeAttachmentUrl(attachment: Attachment) {

@@ -4,7 +4,7 @@ import { io, type Socket } from 'socket.io-client'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { request as httpRequest } from 'node:http'
-import { EXPECTED_USER_HEADER } from '@relay-im/contracts'
+import { EXPECTED_USER_HEADER } from '@anyone-im/contracts'
 
 async function stalledBody(url: string, path: string, cookie: string, expectedUserId: string, contentType: string, bytes: Uint8Array) {
   let pending!: ReturnType<typeof httpRequest>
@@ -47,7 +47,7 @@ async function factory() {
 }
 
 async function fixture(options: import('../src/app').ApplicationOptions = {}) {
-  const dir = await mkdtemp(join(tmpdir(), 'relay-db-'))
+  const dir = await mkdtemp(join(tmpdir(), 'anyone-db-'))
   cleanups.push(() => rm(dir, { recursive: true, force: true }))
   const databaseUrl = `file:${dir}/test.sqlite`
   const proc = Bun.spawn(['bun', 'scripts/database.ts', 'push'], { cwd: join(import.meta.dir, '..'), env: { ...process.env, DB_PROVIDER: 'sqlite', DATABASE_URL: databaseUrl }, stdout: 'pipe', stderr: 'pipe' })
@@ -516,16 +516,16 @@ describe('authorized attachments', () => {
 
 describe('production frontend and entrypoint', () => {
   test('serves built assets and invite deep links without exposing data, source files or symlink targets', async () => {
-    const webDist = await mkdtemp(join(tmpdir(), 'relay-web-'))
+    const webDist = await mkdtemp(join(tmpdir(), 'anyone-web-'))
     cleanups.push(() => rm(webDist, { recursive: true, force: true }))
-    await Bun.write(join(webDist, 'index.html'), '<!doctype html><title>Relay built</title>')
+    await Bun.write(join(webDist, 'index.html'), '<!doctype html><title>Anyone built</title>')
     await Bun.write(join(webDist, 'assets/main.js'), 'console.log("built")')
     await Bun.write(join(webDist, '.env'), 'SECRET=hidden')
     const app = await fixture({ webDist })
     const root = await fetch(app.url)
     expect(root.status).toBe(200)
-    expect(await root.text()).toContain('Relay built')
-    expect(await fetch(`${app.url}/invite/somecode`).then(r => r.text())).toContain('Relay built')
+    expect(await root.text()).toContain('Anyone built')
+    expect(await fetch(`${app.url}/invite/somecode`).then(r => r.text())).toContain('Anyone built')
     expect(await fetch(`${app.url}/assets/main.js`).then(r => r.text())).toContain('built')
     expect((await fetch(`${app.url}/.env`)).status).toBe(404)
     expect((await fetch(`${app.url}/uploads/secret`)).status).toBe(404)
@@ -622,7 +622,7 @@ describe('application lifecycle', () => {
     expect(await build.exited).toBe(0)
     const artifact = await Bun.file(join(cwd, 'dist/index.js')).text()
     expect(artifact.includes(join(cwd, 'generated/client'))).toBe(false)
-    const child = Bun.spawn(['bun', 'dist/index.js'], { cwd, env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATABASE_URL: app.databaseUrl, DATA_DIR: app.dir, DB_PROVIDER: 'sqlite', NODE_ENV: 'production', PUBLIC_ORIGIN: 'https://relay.example' }, stdout: 'pipe', stderr: 'pipe' })
+    const child = Bun.spawn(['bun', 'dist/index.js'], { cwd, env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATABASE_URL: app.databaseUrl, DATA_DIR: app.dir, DB_PROVIDER: 'sqlite', NODE_ENV: 'production', PUBLIC_ORIGIN: 'https://anyone.example' }, stdout: 'pipe', stderr: 'pipe' })
     cleanups.push(async () => { child.kill('SIGTERM'); await child.exited })
     const reader = child.stdout.getReader()
     const first = await reader.read()
@@ -638,7 +638,7 @@ describe('application lifecycle', () => {
     expect(await child.exited).toBe(0)
   }, 30000)
   test('readiness refuses a reachable database without initialized schema', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'relay-uninitialized-'))
+    const dir = await mkdtemp(join(tmpdir(), 'anyone-uninitialized-'))
     cleanups.push(() => rm(dir, { recursive: true, force: true }))
     const { createApplication } = await factory()
     const app = await createApplication({ port: 0, host: '127.0.0.1', dataDir: dir, databaseUrl: `file:${dir}/empty.sqlite` })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Attachment, Message, MessagePage, SendMessageInput, User } from '@relay-im/contracts'
+import type { Attachment, Message, MessagePage, SendMessageInput, User } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export interface Outgoing { roomId: string; userId: string; input: SendMessageInput; attachment?: Attachment; state: 'sending' | 'failed'; error?: string }
@@ -15,7 +15,7 @@ export function useMessages(user: User, roomId: string) {
   const removed = useRef(new Set<string>()), initialized = useRef(new Set<string>()), requests = useRef(new Map<string, Promise<void>>())
   const [outbox, setOutbox] = useState<Outgoing[]>(() => {
     try {
-      const saved: unknown = JSON.parse(localStorage.getItem(`relay.outbox.${user.id}`) || '[]')
+      const saved: unknown = JSON.parse(localStorage.getItem(`anyone.outbox.${user.id}`) || '[]')
       return Array.isArray(saved) ? saved.filter((x: Outgoing) => x.userId === user.id && typeof x.roomId === 'string' && typeof x.input?.text === 'string' && /^[0-9a-f-]{36}$/i.test(x.input?.clientMessageId)).map((x: Outgoing) => ({ ...x, state: 'failed', error: '发送未确认，请重试' })) : []
     } catch { return [] }
   })
@@ -27,7 +27,7 @@ export function useMessages(user: User, roomId: string) {
     setMessages(messagesRef.current)
     setOutbox(old => old.filter(o => !incoming.some(m => m.roomId === o.roomId && m.sender.id === o.userId && m.clientMessageId === o.input.clientMessageId)))
   }, [])
-  useEffect(() => { try { localStorage.setItem(`relay.outbox.${user.id}`, JSON.stringify(outbox.map(o => ({ ...o, state: 'failed', error: o.error || '发送未确认，请重试' })))) } catch { setStorageError('本地存储不可用，未发送消息无法跨刷新保留；请勿关闭页面') } }, [outbox, user.id])
+  useEffect(() => { try { localStorage.setItem(`anyone.outbox.${user.id}`, JSON.stringify(outbox.map(o => ({ ...o, state: 'failed', error: o.error || '发送未确认，请重试' })))) } catch { setStorageError('本地存储不可用，未发送消息无法跨刷新保留；请勿关闭页面') } }, [outbox, user.id])
   const inFlight = useRef(new Set<string>())
   const retry = useCallback(async (item: Outgoing) => {
     if (item.userId !== api.ownerId || inFlight.current.has(item.input.clientMessageId)) return
