@@ -471,6 +471,28 @@ describe('streamed body isolation', () => {
   }
 })
 
+describe('database-only attachment persistence', () => {
+  test('an authorized image survives replacement of the application filesystem', async () => {
+    const app = await fixture()
+    const alice = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Attachment persistence' })
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])
+    const form = new FormData()
+    form.append('file', new File([png], 'persist.png', { type: 'image/png' }))
+    const upload = await fetch(`${app.url}/api/rooms/lobby/attachments`, { method: 'POST', headers: { cookie: alice.cookie, [EXPECTED_USER_HEADER]: alice.userId }, body: form })
+    expect(upload.status).toBe(200)
+    const attachment = (await upload.json()).data
+    await alice.request('/api/rooms/lobby/messages', { clientMessageId: crypto.randomUUID(), text: '', attachmentId: attachment.id })
+    await app.close()
+    const { createApplication } = await factory()
+    const replacement = await createApplication({ port: 0, host: '127.0.0.1', databaseUrl: app.databaseUrl, dataDir: join(app.dir, 'empty-replacement-filesystem') })
+    cleanups.push(() => replacement.close())
+    const image = await fetch(`${replacement.url}${attachment.url}`, { headers: { cookie: alice.cookie } })
+    expect(image.status).toBe(200)
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(png)
+  })
+})
+
 describe('authorized attachments', () => {
   test('multipart magic and size limits, room/uploader ACL, no public static uploads and deleted attachment denial', async () => {
     const app = await fixture()
