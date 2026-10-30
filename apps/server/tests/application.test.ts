@@ -516,7 +516,7 @@ describe('authorized attachments', () => {
 
 describe('production frontend and entrypoint', () => {
   test('serves built assets and invite deep links without exposing data, source files or symlink targets', async () => {
-    const webDist = await mkdtemp(join(process.env.TMPDIR!, 'relay-web-'))
+    const webDist = await mkdtemp(join(tmpdir(), 'relay-web-'))
     cleanups.push(() => rm(webDist, { recursive: true, force: true }))
     await Bun.write(join(webDist, 'index.html'), '<!doctype html><title>Relay built</title>')
     await Bun.write(join(webDist, 'assets/main.js'), 'console.log("built")')
@@ -638,7 +638,7 @@ describe('application lifecycle', () => {
     expect(await child.exited).toBe(0)
   }, 30000)
   test('readiness refuses a reachable database without initialized schema', async () => {
-    const dir = await mkdtemp(join(process.env.TMPDIR!, 'relay-uninitialized-'))
+    const dir = await mkdtemp(join(tmpdir(), 'relay-uninitialized-'))
     cleanups.push(() => rm(dir, { recursive: true, force: true }))
     const { createApplication } = await factory()
     const app = await createApplication({ port: 0, host: '127.0.0.1', dataDir: dir, databaseUrl: `file:${dir}/empty.sqlite` })
