@@ -14,13 +14,9 @@ MySQL max_allowed_packet 应至少为 16 MiB；不擅自修改共享数据库参
 
 ## 分工
 
-用户只在自己的构建机执行，**生产服务器不构建**：
+镜像由 [Docker 构建与发布 CI](docker-publish.md) 在 GitHub 托管 runner 上构建，**生产服务器不安装构建依赖、不构建、不运行 CI 烟测**。先合并工作流到 `main`，再由用户为 Docker Hub 用户 `1596944197` 添加仓库 Actions secret `DOCKERHUB_TOKEN`（具有该镜像仓库写权限的访问令牌）。缺少凭据时仅验证构建和新镜像，不发布；配置后可在默认分支手动触发 `Docker build and publish`，或通过后续 `main` push 触发。
 
-```sh
-docker buildx build --platform linux/amd64 -t 1596944197/anyone-im:latest --push .
-```
-
-用户通知镜像就绪后，管理员创建独立库/账号；首次建表临时授权 CREATE/ALTER/INDEX/REFERENCES，用正式 MySQL 镜像显式执行 bun run db:push，然后撤销 DDL 权限，仅保留 SELECT/INSERT/UPDATE/DELETE。之后只操作新服务：
+确认对应提交的 CI 构建、烟测和 Docker Hub 推送均成功后，管理员再另行安排部署。CI 不自动更新生产容器。首次部署创建独立库/账号；首次建表临时授权 CREATE/ALTER/INDEX/REFERENCES，用正式 MySQL 镜像显式执行 bun run db:push，然后撤销 DDL 权限，仅保留 SELECT/INSERT/UPDATE/DELETE。之后只操作新服务：
 
 ```sh
 docker compose -f /docker-compose.yaml -p default pull anyone-im

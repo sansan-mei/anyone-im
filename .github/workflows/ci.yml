@@ -82,6 +82,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      # Images are built and pushed by the user, never by this workflow.
+      # Optional check of the existing published image, not this commit's build.
+      # docker-publish.yml builds and smoke-tests a new image before publishing.
       - run: docker pull 1596944197/anyone-im:latest
       - run: bash scripts/ci-container-smoke.sh 1596944197/anyone-im:latest
