@@ -3,7 +3,9 @@ import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
 
 type Database = Prisma.TransactionClient
-export const messageInclude = { sender: true, attachment: true } as const
+// Never load image bytes for history, summaries, backfill or send acknowledgements.
+export const attachmentMetadataSelect = { id: true, roomId: true, filename: true, mimeType: true, size: true } as const
+export const messageInclude = { sender: true, attachment: { select: attachmentMetadataSelect } } as const
 type StoredMessage = Prisma.MessageGetPayload<{ include: typeof messageInclude }>
 export function attachmentDto(a: { id: string; roomId: string; filename: string; mimeType: string; size: number }): AttachmentDTO {
   return { id: a.id, roomId: a.roomId, filename: a.filename, mimeType: a.mimeType, size: a.size, url: `/api/attachments/${a.id}` }
@@ -85,7 +87,7 @@ export class Rooms {
         return { message: messageDto(previous), created: false }
       }
       if (input.attachmentId) {
-        const attachment = await tx.attachment.findUnique({ where: { id: input.attachmentId }, include: { message: true } })
+        const attachment = await tx.attachment.findUnique({ where: { id: input.attachmentId }, select: { roomId: true, userId: true, message: { select: { id: true } } } })
         if (!attachment || attachment.roomId !== roomId || attachment.userId !== userId || attachment.message) return fail(403, 'INVALID_ATTACHMENT', '附件不可用')
       }
       const updated = await tx.room.update({ where: { id: roomId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date() } })

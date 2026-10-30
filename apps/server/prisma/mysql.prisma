@@ -82,7 +82,7 @@ model Attachment {
   filename String @db.VarChar(255)
   mimeType String
   size Int
-  diskKey String @unique
+  bytes Bytes @db.MediumBlob
   createdAt DateTime @default(now())
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   uploader User @relation(fields: [userId], references: [id])

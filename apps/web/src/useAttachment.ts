@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Attachment } from '@anyone-im/contracts'
+import { MAX_ATTACHMENT_BYTES, type Attachment } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export function safeAttachmentUrl(attachment: Attachment) {
@@ -12,7 +12,7 @@ export function useAttachment(roomId: string) {
   useEffect(() => () => controller.current?.abort(), [roomId])
   const upload = async (selected: File) => {
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(selected.type)) { setError('请选择 PNG、JPEG 或 WebP 图片'); return }
-    if (selected.size > 5 * 1024 * 1024) { setError('图片不能超过 5 MiB'); return }
+    if (selected.size > MAX_ATTACHMENT_BYTES) { setError('图片不能超过 10 MiB'); return }
     controller.current?.abort(); const request = new AbortController(); controller.current = request
     setFile(selected); setAttachment(undefined); setUploading(true); setError('')
     const form = new FormData(); form.set('file', selected)

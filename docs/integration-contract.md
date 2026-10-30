@@ -37,7 +37,7 @@ All authenticated mutation routes (including logout, uploads and read cursors) r
 - POST /api/invites/:code {} -> `{data:RoomSummary}` authenticated session, join; refuse banned/kicked members.
 - DELETE /api/rooms/:id/members/:userId -> `{data:null}` owner only, never kick owner; durable removal/ban so stale invite cannot rejoin.
 - DELETE /api/messages/:messageId -> `{data:null}` sender or roomowner only; tombstone preserving seq, broadcast deletion.
-- POST /api/rooms/:id/attachments multipart file -> `{data:Attachment}`; members only, PNG/JPEG/WebP, <=5MiB, verify magic bytes, disallow SVG/HTML, random disk key, no direct public upload path.
+- POST /api/rooms/:id/attachments multipart file -> `{data:Attachment}`; members only, PNG/JPEG/WebP, <=10MiB, verify magic bytes, disallow SVG/HTML. Store image bytes atomically with metadata in the database; no application upload volume or public filesystem path.
 - GET /api/attachments/:id -> authorized byte response, room ACL, Content-Type and nosniff. Uploaded attachment may only be used by uploader in the same room. UI uses returned .url. Server retains attachment access policy for deleted messages (deny if no longer accessible).
 
 ## Socket.IO

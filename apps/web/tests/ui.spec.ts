@@ -1,4 +1,5 @@
 import { test, expect, type BrowserContext, type Page, type WebSocketRoute } from '@playwright/test'
+import { MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 test('optional account login, accessible profile dialog, theme preference and logout', async ({ page }) => {
   await fixture(page)
   await page.route('**/api/auth/login', route => route.fulfill({ json: { data: { user: { ...user, username: 'lin', isGuest: false } } } }))
@@ -398,7 +399,14 @@ test('image upload is HTTP multipart, preview and send use server attachment, pa
   await page.getByLabel('选择图片').setInputFiles({ name:'bad.svg', mimeType:'image/svg+xml', buffer:Buffer.from('<svg/>') })
   await expect(page.getByText('请选择 PNG、JPEG 或 WebP 图片')).toBeVisible()
   await expect(page.getByTestId('message-input')).toHaveValue('保留这个草稿')
-  await page.getByLabel('选择图片').setInputFiles({ name:'fixture.png', mimeType:'image/png', buffer:png })
+  await expect(page.getByRole('button', { name: '添加图片' })).toHaveAttribute('title', 'PNG、JPEG、WebP，最大 10 MiB')
+  expect(MAX_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024)
+  await page.getByLabel('选择图片').setInputFiles({ name:'oversized.png', mimeType:'image/png', buffer:Buffer.alloc(MAX_ATTACHMENT_BYTES + 1) })
+  await expect(page.getByText('图片不能超过 10 MiB')).toBeVisible()
+  expect(uploads).toBe(0)
+  await expect(page.getByTestId('message-input')).toHaveValue('保留这个草稿')
+  const maximum = Buffer.alloc(MAX_ATTACHMENT_BYTES); png.copy(maximum)
+  await page.getByLabel('选择图片').setInputFiles({ name:'fixture.png', mimeType:'image/png', buffer:maximum })
   await expect(page.getByText('图片已就绪')).toBeVisible()
   await page.getByTestId('send-message').click()
   const image = page.locator('.bubble img')

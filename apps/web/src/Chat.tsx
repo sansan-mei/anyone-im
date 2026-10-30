@@ -96,7 +96,7 @@ export function Chat({ user, room, state, visible = true, onRead }: { user: User
     {upload.error && <p role="alert" className="upload-error">{upload.error}</p>}
     <form className="composer" onSubmit={e => { e.preventDefault(); send() }}>
       <input className="sr-only" type="file" aria-label="选择图片" accept="image/png,image/jpeg,image/webp" ref={fileInput} onChange={e => { const file = e.target.files?.[0]; if (file) void upload.upload(file); e.target.value = '' }}/>
-      <button type="button" className="icon attach-button" aria-label="添加图片" title="PNG、JPEG、WebP，最大 5 MiB" disabled={upload.uploading} onClick={() => fileInput.current?.click()}><ImagePlus size={20}/></button>
+      <button type="button" className="icon attach-button" aria-label="添加图片" title="PNG、JPEG、WebP，最大 10 MiB" disabled={upload.uploading} onClick={() => fileInput.current?.click()}><ImagePlus size={20}/></button>
       <textarea ref={textarea} data-testid="message-input" aria-label="输入消息" rows={1} maxLength={4000} value={draft} onPaste={e => { const file = [...e.clipboardData.files].find(f => f.type.startsWith('image/')); if (file) { e.preventDefault(); void upload.upload(file) } }} onChange={e => { setDraft(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px` }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); send() } }} placeholder={`发送消息到 ${room.name}`}/>
       <button data-testid="send-message" className="send" aria-label="发送消息" disabled={upload.uploading || (!draft.trim() && !upload.attachment)}><ArrowUp size={21}/></button>
     </form>

@@ -3,7 +3,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { RateLimitKind } from './security'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER } from '@anyone-im/contracts'
+import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { Attachments } from './attachments'
 import { createRealtime } from './realtime'
@@ -28,11 +28,11 @@ export async function createApplication(options: ApplicationOptions = {}) {
   const bodyReadTimeoutMs = options.bodyReadTimeoutMs ?? DEFAULT_BODY_READ_TIMEOUT_MS
   if (!Number.isSafeInteger(bodyReadTimeoutMs) || bodyReadTimeoutMs < 1 || bodyReadTimeoutMs > 300000) throw new Error('Invalid bodyReadTimeoutMs')
   const dataDir = resolve(options.dataDir ?? process.env.DATA_DIR ?? resolve(import.meta.dir, '../../../.data'))
-  await mkdir(dataDir, { recursive: true, mode: 0o700 })
   const provider = options.databaseProvider ?? process.env.DB_PROVIDER ?? 'sqlite'
   if (provider !== 'sqlite' && provider !== 'mysql') throw new Error('Invalid DB_PROVIDER')
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/anyone.sqlite` : '')
   if (!databaseUrl) throw new Error('DATABASE_URL is required')
+  if (provider === 'sqlite') await mkdir(dataDir, { recursive: true, mode: 0o700 })
   const db = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
   const gate = createGate()
   // Alias the runtime environment: Bun's bundler folds direct
@@ -168,7 +168,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
     })
   })
   const rooms = new Rooms(db)
-  const attachments = new Attachments(rooms, dataDir)
+  const attachments = new Attachments(rooms)
   app.post('/api/rooms/:id/attachments', async c => {
     await gate(async () => {
       const s = await auth(c.req.raw)
@@ -284,7 +284,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
   }))
   const webDist = resolve(options.webDist ?? process.env.WEB_DIST ?? resolve(import.meta.dir, '../../web/dist'))
   app.get('*', async c => await frontendResponse(c.req.raw, webDist) ?? c.notFound())
-  const server = Bun.serve({ ...realtime.engine.handler(), hostname: options.host ?? process.env.HOST ?? '127.0.0.1', port: options.port ?? Number(process.env.PORT ?? 4100), maxRequestBodySize: 6 * 1024 * 1024, fetch: (request, server) => app.fetch(request, server) })
+  const server = Bun.serve({ ...realtime.engine.handler(), hostname: options.host ?? process.env.HOST ?? '127.0.0.1', port: options.port ?? Number(process.env.PORT ?? 4100), maxRequestBodySize: MAX_ATTACHMENT_BYTES + 65536, fetch: (request, server) => app.fetch(request, server) })
   listenerOrigin ??= `http://${server.hostname}:${server.port}`
   let closePromise: Promise<void> | undefined
   const close = () => closePromise ??= (async () => { realtime.close(); await server.stop(true); await gate(async () => {}); await db.$disconnect() })()

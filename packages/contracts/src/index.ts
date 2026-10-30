@@ -15,7 +15,7 @@ export const readSchema = z.object({ seq: z.number().int().min(0).max(Number.MAX
 export const DEFAULT_PORT = 4100
 export const SESSION_COOKIE = 'anyone_session'
 export const EXPECTED_USER_HEADER = 'X-Anyone-User-Id'
-export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 export type ApiError = { code: string; message: string }
 export type Result<T> = { data: T } | { error: ApiError }

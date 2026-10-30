@@ -1,4 +1,4 @@
-# Share the existing production Compose project/default network and MySQL.
+# Existing production project/default network; no extra network or storage mounts.
 name: default
 services:
   anyone-im:
@@ -7,10 +7,13 @@ services:
     restart: unless-stopped
     init: true
     mem_limit: 384m
-    env_file: .env
     ports:
       - "127.0.0.1:4100:4100"
-    volumes:
-      - anyone-im-data:/data
-volumes:
-  anyone-im-data:
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "4100"
+      DB_PROVIDER: mysql
+      PUBLIC_ORIGIN: https://im.mh33.top
+      # Use the privately supplied ready-to-copy production block for the real password.
+      DATABASE_URL: mysql://anyone_im:SET_DATABASE_PASSWORD@mysql:3306/anyone_im

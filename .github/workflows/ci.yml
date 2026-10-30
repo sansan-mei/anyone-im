@@ -76,10 +76,12 @@ jobs:
           name: mysql-browser-results
           path: test-results/
           if-no-files-found: ignore
-  image-build:
+  published-image-smoke:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --tag anyone-im:ci .
-      - run: bash scripts/ci-container-smoke.sh anyone-im:ci
+      # Images are built and pushed by the user, never by this workflow.
+      - run: docker pull 1596944197/anyone-im:latest
+      - run: bash scripts/ci-container-smoke.sh 1596944197/anyone-im:latest

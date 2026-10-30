@@ -7,7 +7,7 @@ const operation = process.argv[2]
 if (operation !== 'generate' && operation !== 'push') throw new Error('Usage: bun scripts/database.ts generate|push')
 const root = resolve(import.meta.dir, '..')
 const dataDir = resolve(process.env.DATA_DIR ?? resolve(root, '../../.data'))
-await mkdir(dataDir, { recursive: true, mode: 0o700 })
+if (provider === 'sqlite') await mkdir(dataDir, { recursive: true, mode: 0o700 })
 const url = process.env.DATABASE_URL ?? (provider === 'sqlite' ? `file:${dataDir}/anyone.sqlite` : '')
 if (!url) throw new Error('DATABASE_URL is required for mysql')
 if (provider === 'sqlite' && url.startsWith('file:')) await mkdir(dirname(url.slice(5)), { recursive: true, mode: 0o700 })

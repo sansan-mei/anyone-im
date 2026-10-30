@@ -4,7 +4,7 @@ import { io, type Socket } from 'socket.io-client'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { request as httpRequest } from 'node:http'
-import { EXPECTED_USER_HEADER } from '@anyone-im/contracts'
+import { EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 
 async function stalledBody(url: string, path: string, cookie: string, expectedUserId: string, contentType: string, bytes: Uint8Array) {
   let pending!: ReturnType<typeof httpRequest>
@@ -493,6 +493,80 @@ describe('database-only attachment persistence', () => {
   })
 })
 
+describe('attachment storage boundaries', () => {
+  test('history, summaries, send and denied downloads never select blob bytes', async () => {
+    const app = await fixture()
+    const alice = agent(app.url), bob = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Alice' })
+    await bob.request('/api/auth/guest', { displayName: 'Bob' })
+    const room = (await alice.request('/api/rooms', { name: 'Blob projections', visibility: 'private' })).body.data
+    const { PrismaClient } = await import('../generated/client')
+    const { Rooms } = await import('../src/rooms')
+    const { Attachments } = await import('../src/attachments')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } }, log: [{ emit: 'event', level: 'query' }] })
+    const selects: string[] = []
+    db.$on('query', event => { if (/^SELECT\b/i.test(event.query)) selects.push(event.query) })
+    const noBlobReads = () => {
+      expect(selects.length).toBeGreaterThan(0)
+      expect(selects.filter(query => /["`]bytes["`]/i.test(query))).toEqual([])
+      selects.length = 0
+    }
+    const rooms = new Rooms(db), attachments = new Attachments(rooms)
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    try {
+      const session = await db.session.findFirstOrThrow({ where: { userId: alice.userId } })
+      const attachment = await attachments.commit({ data: png, filename: 'projection.png', mimeType: 'image/png' }, room.id, alice.userId)
+      expect(Object.keys(attachment).sort()).toEqual(['filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
+      noBlobReads()
+      await expect(attachments.download(attachment.id, bob.userId)).rejects.toMatchObject({ status: 403 })
+      noBlobReads()
+      await db.membership.create({ data: { roomId: room.id, userId: bob.userId } })
+      await expect(attachments.download(attachment.id, bob.userId)).rejects.toMatchObject({ status: 403 })
+      noBlobReads()
+      const input = { clientMessageId: crypto.randomUUID(), text: '', attachmentId: attachment.id }
+      const sent = await rooms.send(room.id, alice.userId, session.id, input)
+      expect(sent.message.attachment).toEqual(attachment)
+      expect((await rooms.send(room.id, alice.userId, session.id, input)).created).toBe(false)
+      noBlobReads()
+      const more = Array.from({ length: 99 }, () => ({ id: crypto.randomUUID(), roomId: room.id, userId: alice.userId, filename: 'history.png', mimeType: 'image/png', size: png.length, bytes: png }))
+      await db.attachment.createMany({ data: more })
+      await db.message.createMany({ data: more.map((image, index) => ({ roomId: room.id, userId: alice.userId, clientMessageId: crypto.randomUUID(), seq: index + 2, text: '', attachmentId: image.id })) })
+      await db.room.update({ where: { id: room.id }, data: { lastSeq: 100 } })
+      const history = await rooms.page(room.id, alice.userId, { limit: 100 })
+      const backfill = await rooms.page(room.id, alice.userId, { afterSeq: 0, limit: 100 })
+      expect(history.messages).toHaveLength(100)
+      expect(backfill.messages).toEqual(history.messages)
+      expect((await rooms.summary(room.id, alice.userId)).lastMessage?.attachment?.id).toBe(more.at(-1)!.id)
+      for (const message of history.messages) expect(Object.keys(message.attachment!).sort()).toEqual(['filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
+      noBlobReads()
+      const downloaded = await attachments.download(attachment.id, bob.userId)
+      expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(png)
+      expect(selects.filter(query => /["`]bytes["`]/i.test(query))).toHaveLength(1)
+      selects.length = 0
+      await rooms.deleteMessage(sent.message.id, alice.userId)
+      await expect(attachments.download(attachment.id, alice.userId)).rejects.toMatchObject({ status: 404 })
+      noBlobReads()
+    } finally { await db.$disconnect() }
+  }, 30000)
+
+  test('failed blob insertion leaves no attachment metadata or upload files', async () => {
+    const app = await fixture()
+    const alice = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Atomic upload' })
+    const { PrismaClient } = await import('../generated/client')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } } })
+    try {
+      await db.$executeRawUnsafe(`CREATE TRIGGER reject_attachment BEFORE INSERT ON Attachment BEGIN SELECT RAISE(ABORT, 'forced blob failure'); END`)
+      const form = new FormData()
+      form.set('file', new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'atomic.png', { type: 'image/png' }))
+      const response = await fetch(`${app.url}/api/rooms/lobby/attachments`, { method: 'POST', headers: { cookie: alice.cookie, [EXPECTED_USER_HEADER]: alice.userId }, body: form })
+      expect(response.status).toBe(500)
+      expect(await db.attachment.count()).toBe(0)
+      expect(await readdir(join(app.dir, 'uploads')).catch(() => [])).toEqual([])
+    } finally { await db.$disconnect() }
+  })
+})
+
 describe('authorized attachments', () => {
   test('multipart magic and size limits, room/uploader ACL, no public static uploads and deleted attachment denial', async () => {
     const app = await fixture()
@@ -512,7 +586,21 @@ describe('authorized attachments', () => {
     expect((await upload(eve.cookie, png)).status).toBe(403)
     expect((await upload(alice.cookie, new TextEncoder().encode('<svg><script>alert(1)</script></svg>'))).status).toBe(415)
     expect((await upload(alice.cookie, png, 'text/html')).status).toBe(415)
-    expect((await upload(alice.cookie, new Uint8Array(5 * 1024 * 1024 + 1))).status).toBe(413)
+    expect(MAX_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024)
+    const maximum = new Uint8Array(MAX_ATTACHMENT_BYTES)
+    maximum.set(png)
+    const atLimit = await upload(alice.cookie, maximum)
+    expect(atLimit.status).toBe(200)
+    expect(atLimit.body.data.size).toBe(MAX_ATTACHMENT_BYTES)
+    const maximumDownload = await fetch(`${app.url}${atLimit.body.data.url}`, { headers: { cookie: alice.cookie } })
+    expect(maximumDownload.status).toBe(200)
+    expect(maximumDownload.headers.get('content-length')).toBe(String(MAX_ATTACHMENT_BYTES))
+    expect(new Uint8Array(await maximumDownload.arrayBuffer())).toEqual(maximum)
+    const oversized = new Uint8Array(MAX_ATTACHMENT_BYTES + 1)
+    oversized.set(png)
+    const rejected = await upload(alice.cookie, oversized)
+    expect(rejected.status).toBe(413)
+    expect(rejected.body.error.message).toContain('10MiB')
     const uploaded = await upload(alice.cookie, png)
     expect(uploaded.status).toBe(200)
     const attachment = uploaded.body.data
