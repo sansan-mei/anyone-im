@@ -1,0 +1,436 @@
+/* Shared Material-inspired roles; no remote fonts or shadow decoration. */
+:root {
+  font-family: Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--bg);
+
+  --bg: #f8fafd;
+  --panel: #ffffff;
+  --side: #eaf1fb;
+  --ink: #1f1f1f;
+  --muted: #5e6e75;
+  --line: #dce3ef;
+  --outline: #747775;
+  --accent: #0b57d0;
+  --on-accent: #ffffff;
+  /* Lighter container keeps secondary small text above 4.5:1. */
+  --accent-soft: #e6efff;
+  --accent-container: #d3e3fd;
+  --danger: #b3261e;
+  --danger-soft: #fce8e6;
+  --hover: color-mix(in srgb, var(--accent) 8%, transparent);
+  --pressed: color-mix(in srgb, var(--accent) 14%, transparent);
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 28px;
+  --radius-full: 999px;
+  --text-body: 15px;
+  --text-label: 14px;
+  --text-meta: 12px;
+  --text-supporting: 13px;
+}
+
+/* Explicit preference wins over the system setting. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #131314;
+  --panel: #1e1f20;
+  --side: #202631;
+  --ink: #e2eaeb;
+  --muted: #aeb8c5;
+  --line: #3b4350;
+  --outline: #929ba8;
+  --accent: #a8c7fa;
+  --on-accent: #0e2825;
+  --accent-soft: #283a56;
+  --accent-container: #344c70;
+  --danger: #ffb4ab;
+  --danger-soft: #462923;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #131314;
+    --panel: #1e1f20;
+    --side: #202631;
+    --ink: #e2eaeb;
+    --muted: #aeb8c5;
+    --line: #3b4350;
+    --outline: #929ba8;
+    --accent: #a8c7fa;
+    --on-accent: #0e2825;
+    --accent-soft: #283a56;
+    --accent-container: #344c70;
+    --danger: #ffb4ab;
+    --danger-soft: #462923;
+  }
+}
+
+/* Baseline and shared controls. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button, input, textarea, select {
+  font: inherit;
+  outline: none;
+}
+
+button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+button:focus-visible, input:focus-visible, textarea:focus-visible,
+select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+button:not(:disabled):active {
+  background-color: var(--pressed);
+}
+
+a {
+  color: var(--accent);
+}
+
+input, textarea, select {
+  min-width: 0;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+input, select {
+  height: 48px;
+  padding: 0 14px;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+textarea {
+  resize: none;
+  padding: 12px 14px;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+h1, h2, h3 {
+  font-weight: 500;
+  letter-spacing: -.3px;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2, h3 {
+  font-size: 20px;
+}
+
+small {
+  font-size: var(--text-meta);
+}
+
+.muted {
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.eyebrow {
+  font-size: var(--text-meta);
+  letter-spacing: .5px;
+  color: var(--muted);
+}
+
+.primary, .secondary, .danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 22px;
+  font-size: var(--text-label);
+  font-weight: 500;
+}
+
+.primary, .send {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.primary:hover:not(:disabled), .send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, var(--accent));
+}
+
+.primary:active:not(:disabled), .send:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 14%, var(--accent));
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.icon:hover:not(:disabled), .text-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.text-button {
+  padding: 8px 12px;
+  font-size: var(--text-supporting);
+  color: var(--accent);
+}
+
+.full {
+  width: 100%;
+}
+
+.error {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-supporting);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.form-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  line-height: 1.7;
+}
+
+.success {
+  color: var(--accent);
+  font-size: var(--text-supporting);
+}
+
+/* Retain Anyone's existing identity, without borrowed logos. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -.8px;
+}
+
+.brand-dot {
+  margin-left: 1px;
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.brand-mark {
+  position: relative;
+  display: inline-block;
+  width: 29px;
+  height: 29px;
+  transform: rotate(-12deg);
+}
+
+.brand-mark i {
+  position: absolute;
+  top: 0;
+  left: 4px;
+  width: 9px;
+  height: 23px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.brand-mark i + i {
+  top: 7px;
+  left: 17px;
+}
+
+.boot {
+  display: grid;
+  place-content: center;
+  gap: 20px;
+  height: 100dvh;
+  text-align: center;
+}
+
+.boot p {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+}
+
+/* Onboarding keeps the existing form flow and a quiet reading width. */
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: 32px 5vw;
+}
+
+.auth-page > header, .auth-page footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.auth-panel {
+  width: min(440px, 100%);
+  margin: auto;
+  padding: 48px 0;
+}
+
+.auth-panel h1 {
+  margin: 18px 0;
+  font-size: 36px;
+  line-height: 1.5;
+  letter-spacing: -1px;
+}
+
+.auth-panel h1 span {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.auth-panel .primary {
+  width: 100%;
+}
+
+.auth-page footer {
+  color: var(--muted);
+  font-size: var(--text-meta);
+}
+
+/* Operate composition: a room rail and one rounded message surface. */
+.workspace {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+  height: var(--app-height, 100dvh);
+  max-width: 1720px;
+  margin: auto;
+  padding: 12px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.sidebar, .conversation {
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--side);
+}
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+/* Match the existing VisualViewport keyboard hook, without extra mobile gutters. */
+@media (max-width: 700px) {
+  .workspace {
+    position: fixed;
+    top: var(--viewport-top, 0);
+    left: 0;
+    right: 0;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: var(--app-height, 100dvh);
+    margin: 0;
+    padding: 0;
+  }
+
+  .sidebar, .conversation {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .conversation, .chat-open .sidebar {
+    display: none;
+  }
+
+  .chat-open .conversation {
+    display: flex;
+  }
+
+  input, textarea, select {
+    font-size: 16px;
+  }
+
+  .auth-page {
+    padding: 24px;
+  }
+
+  .auth-page > header > .eyebrow {
+    max-width: 100px;
+    text-align: right;
+    letter-spacing: 0;
+  }
+
+  .auth-panel {
+    padding: 36px 0;
+  }
+
+  .auth-panel h1 {
+    font-size: 28px;
+  }
+
+  .auth-page footer span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@relay-im/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts --target bun --outdir dist --packages external --external ./generated/client",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "test": "bun test tests",
+    "db:generate": "bun scripts/database.ts generate",
+    "db:push": "bun scripts/database.ts push"
+  },
+  "dependencies": {
+    "@relay-im/contracts": "workspace:*",
+    "@prisma/client": "6.19.3",
+    "@socket.io/bun-engine": "0.1.2",
+    "hono": "^4.8.5",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "prisma": "6.19.3",
+    "socket.io-client": "^4.8.1"
+  }
+}

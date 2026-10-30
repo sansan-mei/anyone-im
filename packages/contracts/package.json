@@ -1,0 +1,9 @@
+{
+  "name": "@relay-im/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit --project tsconfig.json" },
+  "dependencies": { "zod": "^4.0.0" }
+}

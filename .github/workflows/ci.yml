@@ -1,0 +1,85 @@
+name: Verify Relay IM
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: relay-im-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sqlite-and-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate
+        env:
+          DB_PROVIDER: sqlite
+          DATABASE_URL: file:./ci.db
+      - run: bun run typecheck
+      - run: bun test packages/contracts/tests apps/server/tests scripts/*.test.ts
+      - run: bun audit
+      - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+      - run: bun x playwright test --config playwright.ui.config.ts
+        working-directory: apps/web
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sqlite-browser-results
+          path: |
+            test-results/
+            apps/web/test-results/
+          if-no-files-found: ignore
+  mysql-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: relay_ci
+          MYSQL_ROOT_PASSWORD: relay_ci_test_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=30
+    env:
+      DB_PROVIDER: mysql
+      DATABASE_URL: mysql://root:relay_ci_test_only@127.0.0.1:3306/relay_ci
+      RELAY_E2E_MYSQL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate
+      - run: bun run db:push
+      - run: bun run typecheck
+      - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mysql-browser-results
+          path: test-results/
+          if-no-files-found: ignore
+  image-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag relay-im:ci .
+      - run: bash scripts/ci-container-smoke.sh relay-im:ci

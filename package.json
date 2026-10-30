@@ -1,0 +1,26 @@
+{
+  "name": "relay-im",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "PUBLIC_ORIGIN=http://127.0.0.1:4101 bun run --parallel --filter '@relay-im/server' --filter '@relay-im/web' dev",
+    "build": "bun run --filter '@relay-im/web' build && bun run --filter '@relay-im/server' build",
+    "typecheck": "bun run --filter '@relay-im/*' typecheck && bun run typecheck:tools",
+    "typecheck:tools": "tsc --noEmit --project tsconfig.scripts.json",
+    "test": "bun test packages/contracts/tests apps/server/tests scripts/*.test.ts",
+    "test:e2e": "bun run --filter '@relay-im/web' build && playwright test",
+    "db:generate": "bun run --filter '@relay-im/server' db:generate",
+    "db:push": "bun run --filter '@relay-im/server' db:push",
+    "start": "bun run apps/server/src/index.ts",
+    "audit:security": "bun audit"
+  },
+  "overrides": { "deepmerge-ts": "8.0.2" },
+  "trustedDependencies": ["@prisma/client", "@prisma/engines", "prisma"],
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/bun": "^1.4.2",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+  output = "../generated/client"
+}
+datasource db {
+  provider = "sqlite"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(uuid())
+  username String? @unique
+  displayName String
+  passwordHash String?
+  isGuest Boolean @default(true)
+  createdAt DateTime @default(now())
+  sessions Session[]
+  memberships Membership[]
+  messages Message[]
+  attachments Attachment[]
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([expiresAt])
+}
+model Room {
+  id String @id @default(uuid())
+  name String
+  description String @default("")
+  visibility String @default("private")
+  lastSeq Int @default(0)
+  updatedAt DateTime @default(now())
+  memberships Membership[]
+  messages Message[]
+  invites Invite[]
+  attachments Attachment[]
+}
+model Membership {
+  roomId String
+  userId String
+  role String @default("member")
+  active Boolean @default(true)
+  banned Boolean @default(false)
+  lastReadSeq Int @default(0)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([roomId, userId])
+  @@index([userId, active])
+}
+model Message {
+  id String @id @default(uuid())
+  roomId String
+  userId String
+  clientMessageId String
+  seq Int
+  text String
+  attachmentId String? @unique
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [userId], references: [id])
+  attachment Attachment? @relation(fields: [attachmentId], references: [id])
+  @@unique([roomId, userId, clientMessageId])
+  @@unique([roomId, seq])
+}
+model Invite {
+  id String @id
+  roomId String
+  expiresAt DateTime
+  revoked Boolean @default(false)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@index([roomId])
+}
+model Attachment {
+  id String @id @default(uuid())
+  roomId String
+  userId String
+  filename String
+  mimeType String
+  size Int
+  diskKey String @unique
+  createdAt DateTime @default(now())
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [userId], references: [id])
+  message Message?
+  @@index([roomId])
+}

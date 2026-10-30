@@ -1,0 +1,263 @@
+/* Forms and dialog surfaces share the same type, shape and state roles. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stack label, .setting-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--text-label);
+  font-weight: 500;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 24px;
+  padding: 4px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-full);
+}
+
+.auth-tabs button {
+  flex: 1;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: var(--text-label);
+  white-space: nowrap;
+}
+
+.auth-tabs button:hover {
+  background: var(--hover);
+}
+
+.auth-tabs [aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.auth-panel form.stack {
+  margin-top: 24px;
+}
+
+.secondary {
+  border: 1px solid var(--outline);
+  background: transparent;
+  color: var(--accent);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.danger {
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.danger:hover:not(:disabled), .danger-quiet:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(15 20 30 / 40%);
+  animation: fade-in 120ms ease;
+}
+
+.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--panel);
+  color: var(--ink);
+  outline: none;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 20px 18px 24px;
+  flex-shrink: 0;
+}
+
+.modal-header h2 {
+  font-size: 22px;
+  line-height: 1.5;
+}
+
+.modal-header p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  line-height: 1.7;
+}
+
+.modal-body {
+  min-height: 0;
+  padding: 4px 24px 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.modal.sheet {
+  inset: 12px 12px 12px auto;
+  width: min(420px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  border-radius: var(--radius-lg);
+  transform: none;
+}
+
+.profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.profile-summary > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.avatar.large {
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+}
+
+.profile-summary strong {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.profile-summary p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-supporting);
+}
+
+.setting-section {
+  margin: 24px 0;
+  padding: 24px 0;
+  border-block: 1px solid var(--line);
+}
+
+.visibility {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.visibility legend {
+  margin-bottom: 10px;
+  font-size: var(--text-label);
+  font-weight: 500;
+}
+
+.visibility > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.visibility > label.chosen {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.visibility input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.visibility svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.visibility strong, .visibility small {
+  display: block;
+  font-weight: 400;
+}
+
+.visibility strong {
+  font-size: var(--text-label);
+}
+
+.visibility small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-meta);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Preserve the existing keyboard-aware modal behavior and scroll the body only. */
+@media (max-width: 700px) {
+  .modal {
+    top: calc(var(--viewport-top, 0px) + var(--app-height, 100dvh) / 2);
+    width: min(480px, calc(100vw - 24px));
+    max-height: calc(var(--app-height, 100dvh) - 24px);
+    border-radius: var(--radius-lg);
+  }
+
+  .modal.sheet {
+    inset: var(--viewport-top, 0) 0 auto;
+    width: 100%;
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
+    border-radius: 0;
+  }
+
+  .modal-header {
+    padding: max(16px, env(safe-area-inset-top)) 12px 16px 20px;
+  }
+
+  .modal-body {
+    padding: 0 20px max(20px, env(safe-area-inset-bottom));
+  }
+
+  .modal-header h2 {
+    font-size: 20px;
+  }
+
+  .auth-tabs button {
+    padding-inline: 6px;
+    font-size: var(--text-supporting);
+  }
+}
