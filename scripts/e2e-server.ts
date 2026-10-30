@@ -28,7 +28,8 @@ try {
     const setup = Bun.spawn([process.execPath, 'run', '--filter', '@anyone-im/server', script], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })
     if (await setup.exited !== 0) throw new Error(`Isolated E2E setup failed: ${script}`)
   }
-  child = Bun.spawn([process.execPath, 'run', 'apps/server/src/index.ts'], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })
+  const entry = process.argv.includes('--artifact') ? 'apps/server/dist/index.js' : 'apps/server/src/index.ts'
+  child = Bun.spawn([process.execPath, 'run', entry], { cwd: root, env, stdout: 'inherit', stderr: 'inherit' })
   const exitCode = await child.exited
   await cleanup()
   process.exit(exitCode)

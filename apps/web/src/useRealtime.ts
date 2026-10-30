@@ -5,7 +5,7 @@ import type { MessageState } from './Chat'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export function useRealtime({ active, state, refresh, onMessage, onDeleted, onPresence, onRemoved }: {
-  active: string; state: MessageState; refresh: () => Promise<boolean>;
+  active: string; state: MessageState; refresh: (historyBaseline?: boolean, isCurrent?: () => boolean) => Promise<boolean>;
   onMessage: ServerToClientEvents['message:new']; onDeleted: ServerToClientEvents['message:deleted']; onPresence: ServerToClientEvents['presence:update']; onRemoved: ServerToClientEvents['room:removed']
 }) {
   const api = useApi()
@@ -21,8 +21,9 @@ export function useRealtime({ active, state, refresh, onMessage, onDeleted, onPr
     socketRef.current = socket
     socket.on('connect', () => {
       ready = false; const attempt = ++generation
-      void latest.current.refresh().then(ok => {
-        if (attempt !== generation || !socket.connected || !api.isCurrent()) return
+      const isCurrent = () => attempt === generation && socket.connected && api.isCurrent()
+      void latest.current.refresh(true, isCurrent).then(ok => {
+        if (!isCurrent()) return
         if (!ok) { socket.disconnect(); setConnection('offline'); return }
         ready = true; setConnection('connected'); setEpoch(e => e + 1)
       })
@@ -43,7 +44,7 @@ export function useRealtime({ active, state, refresh, onMessage, onDeleted, onPr
     const online = () => { setConnection('connecting'); socket.connect() }
     const offline = () => { setConnection('offline'); socket.disconnect() }
     window.addEventListener('online', online); window.addEventListener('offline', offline)
-    return () => { window.removeEventListener('online', online); window.removeEventListener('offline', offline); socket.disconnect(); socketRef.current = null }
+    return () => { ready = false; generation++; window.removeEventListener('online', online); window.removeEventListener('offline', offline); socket.disconnect(); socketRef.current = null }
   }, [])
   useEffect(() => {
     if (!active || connection !== 'connected') return

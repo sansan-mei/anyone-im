@@ -11,6 +11,7 @@
     "typecheck:tools": "tsc --noEmit --project tsconfig.scripts.json",
     "test": "bun test packages/contracts/tests apps/server/tests scripts/*.test.ts",
     "test:e2e": "bun run --filter '@anyone-im/web' build && playwright test",
+    "test:e2e:artifact": "bun run build && playwright test --config playwright.artifact.config.ts",
     "db:generate": "bun run --filter '@anyone-im/server' db:generate",
     "db:push": "bun run --filter '@anyone-im/server' db:push",
     "start": "bun run apps/server/src/index.ts",

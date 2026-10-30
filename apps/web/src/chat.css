@@ -343,7 +343,7 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  margin: 0 24px;
+  margin: 0 24px max(12px, env(safe-area-inset-bottom));
   padding: 8px;
   border: 1px solid var(--outline);
   border-radius: var(--radius-xl);
@@ -450,7 +450,7 @@
 
   .composer {
     gap: 4px;
-    margin: 0 8px;
+    margin: 0 8px max(8px, env(safe-area-inset-bottom));
     padding: 6px;
     border-radius: var(--radius-lg);
   }
@@ -462,6 +462,6 @@
   }
 
   .composer-note {
-    padding: 6px 14px max(8px, env(safe-area-inset-bottom));
+    padding: 6px 14px;
   }
 }
