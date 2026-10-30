@@ -12,3 +12,15 @@ test-results
 coverage
 **/dist
 apps/server/generated
+.github
+docs
+tests
+**/tests
+scripts
+*.md
+**/*.md
+playwright*.ts
+**/playwright*.ts
+Dockerfile
+compose.yaml
+.build.log

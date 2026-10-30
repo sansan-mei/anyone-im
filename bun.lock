@@ -14,14 +14,14 @@
       "name": "@anyone-im/server",
       "version": "0.1.0",
       "dependencies": {
-        "@prisma/client": "6.19.3",
         "@anyone-im/contracts": "workspace:*",
+        "@prisma/client": "6.19.3",
         "@socket.io/bun-engine": "0.1.2",
         "hono": "^4.8.5",
+        "prisma": "6.19.3",
         "socket.io": "^4.8.1",
       },
       "devDependencies": {
-        "prisma": "6.19.3",
         "socket.io-client": "^4.8.1",
       },
     },
@@ -29,9 +29,9 @@
       "name": "@anyone-im/web",
       "version": "0.1.0",
       "dependencies": {
+        "@anyone-im/contracts": "workspace:*",
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
-        "@anyone-im/contracts": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.525.0",
@@ -59,13 +59,19 @@
   },
   "trustedDependencies": [
     "@prisma/engines",
-    "prisma",
     "@prisma/client",
+    "prisma",
   ],
   "overrides": {
     "deepmerge-ts": "8.0.2",
   },
   "packages": {
+    "@anyone-im/contracts": ["@anyone-im/contracts@workspace:packages/contracts"],
+
+    "@anyone-im/server": ["@anyone-im/server@workspace:apps/server"],
+
+    "@anyone-im/web": ["@anyone-im/web@workspace:apps/web"],
+
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
     "@babel/compat-data": ["@babel/compat-data@7.29.7", "", {}, "sha512-locTkQyKvwIEgBzVrn8693ebc97F2U8ZHjbXwDXJ5Fn2TCpNwTlKcaKLkdHop5c/icOFE7qt7Q9JC5hnKNa6Gg=="],
@@ -245,12 +251,6 @@
     "@radix-ui/react-use-size": ["@radix-ui/react-use-size@1.1.5", "", { "dependencies": { "@radix-ui/react-use-layout-effect": "1.1.4" }, "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-V1McDQkMGzgivwqdu7u96APs7oi0Jvj9LTzgq3WWrDZqxWdAqU9yZnZQqk5OizGFR8badUQwZsrlao7MOlWYOA=="],
 
     "@radix-ui/rect": ["@radix-ui/rect@1.1.3", "", {}, "sha512-JtyZR+mqgBibTo8xea3B6ZRmzZiM/YeVBtUkas6zMuXjAlfIFIW2FgqeM9eLyvEaYX66vr6DJMK+4U6LV0KhNw=="],
-
-    "@anyone-im/contracts": ["@anyone-im/contracts@workspace:packages/contracts"],
-
-    "@anyone-im/server": ["@anyone-im/server@workspace:apps/server"],
-
-    "@anyone-im/web": ["@anyone-im/web@workspace:apps/web"],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-beta.27", "", {}, "sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA=="],
 
