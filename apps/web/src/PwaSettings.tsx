@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MessageNotifications } from './useMessageNotifications'
+import './pwa-settings.css'
 
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 export function usePwaInstall() {
@@ -22,5 +23,18 @@ export function usePwaInstall() {
   return { installed, help, install }
 }
 export function PwaSettings({ install, notifications }: { install: ReturnType<typeof usePwaInstall>; notifications: MessageNotifications }) {
-  return <div className="setting-section"><h3>应用与通知</h3><button className="secondary full" type="button" disabled={install.installed} onClick={() => void install.install()}>{install.installed ? '已安装到桌面' : '安装到桌面'}</button>{install.help && <p role="status" className="form-note">{install.help}</p>}<button className="secondary full" type="button" aria-pressed={notifications.enabled} onClick={() => void notifications.toggle()}>{notifications.enabled ? '关闭消息通知' : '开启消息通知'}</button>{notifications.status && <p role="status" className="form-note">{notifications.status}</p>}<p className="form-note">仅在此页面仍运行、且切到后台或失去焦点时提醒；关闭页面后不推送。通知不展示聊天正文。刷新或切换账户后需重新开启。</p></div>
+  return <section className="setting-section" aria-label="应用与通知">
+    <h3>应用与通知</h3>
+    <div className="pwa-actions">
+      <div className="pwa-action">
+        <button className="secondary full" type="button" disabled={install.installed} onClick={() => void install.install()}>{install.installed ? '已安装到桌面' : '安装到桌面'}</button>
+        {install.help && <p role="status" className="form-note">{install.help}</p>}
+      </div>
+      <div className="pwa-action">
+        <button className="secondary full" type="button" aria-pressed={notifications.enabled} onClick={() => void notifications.toggle()}>{notifications.enabled ? '关闭消息通知' : '开启消息通知'}</button>
+        {notifications.status && <p role="status" className="form-note">{notifications.status}</p>}
+      </div>
+    </div>
+    <p className="form-note">仅在此页面仍运行、且切到后台或失去焦点时提醒；关闭页面后不推送。通知不展示聊天正文。刷新或切换账户后需重新开启。</p>
+  </section>
 }
