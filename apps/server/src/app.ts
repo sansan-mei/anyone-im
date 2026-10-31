@@ -26,8 +26,10 @@ export interface ApplicationOptions {
   bodyReadTimeoutMs?: number
   attachmentCleanup?: boolean
   attachmentCleanupIntervalMs?: number
+  attachmentRetention?: { now?: () => number; intervalMs?: number }
 }
 export async function createApplication(options: ApplicationOptions = {}) {
+  const attachmentNow = options.attachmentRetention?.now ?? (() => Date.now())
   const bodyReadTimeoutMs = options.bodyReadTimeoutMs ?? DEFAULT_BODY_READ_TIMEOUT_MS
   if (!Number.isSafeInteger(bodyReadTimeoutMs) || bodyReadTimeoutMs < 1 || bodyReadTimeoutMs > 300000) throw new Error('Invalid bodyReadTimeoutMs')
   const dataDir = resolve(options.dataDir ?? process.env.DATA_DIR ?? resolve(import.meta.dir, '../../../.data'))
@@ -60,7 +62,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
   let retention: ReturnType<typeof createAttachmentRetention> | undefined
   try {
   await db.$connect()
-  retention = createAttachmentRetention(db, gate, undefined, options.attachmentCleanupIntervalMs)
+  retention = createAttachmentRetention(db, gate, () => new Date(attachmentNow()), options.attachmentCleanupIntervalMs ?? options.attachmentRetention?.intervalMs)
   const app = new Hono<{ Bindings: Bun.Server<WebSocketData> }>()
   app.onError((error, c) => c.json(errorBody(error), (error instanceof ApiFailure ? error.status : 500) as ContentfulStatusCode))
   app.notFound(c => c.json({ error: { code: 'NOT_FOUND', message: '资源不存在' } }, 404))
@@ -179,7 +181,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
       return c.json({ data: userDto(user) })
     })
   })
-  const rooms = new Rooms(db)
+  const rooms = new Rooms(db, attachmentNow)
   const attachments = new Attachments(rooms)
   app.post('/api/rooms/:id/attachments', async c => {
     await gate(async () => {

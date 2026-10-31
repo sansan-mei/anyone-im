@@ -24,8 +24,9 @@ All authenticated mutation routes (including logout, uploads and read cursors) r
 - PATCH /api/me {displayName} -> `{data:User}`.
 - GET /api/rooms -> `{data:{rooms:RoomSummary[]}}` member rooms only, with unread positions and last message.
 - GET /api/rooms/public -> `{data:{rooms:RoomSummary[]}}` joinable public rooms, no private-room leakage. For non-member public previews role may be member and lastReadSeq0; no message/history content exposed until joined.
-- POST /api/rooms CreateRoomInput -> `{data:RoomSummary}` owner membership.
-- POST /api/rooms/:id/join {} -> `{data:RoomSummary}` public rooms only. Private uses invite.
+- POST /api/rooms CreateRoomInput -> `{data:RoomSummary}` owner membership. Default private rooms require a 6–128 character password, stored only as an Argon2id hash; public rooms need no password.
+- POST /api/rooms/:id/join {password?} -> `{data:RoomSummary}` public rooms join without a password; private rooms require the current password. Unknown/missing/wrong credentials return the same opaque error; bans remain enforced. Invites are an optional independent entry method.
+- PATCH /api/rooms/:id/password {password} -> `{data:null}` owner-only private-room password rotation or setup for a legacy room; no plaintext/hash is returned. Legacy passwordless private rooms remain closed to password entry until configured, without breaking existing memberships or optional invitations.
 - POST /api/rooms/:id/leave {} -> `{data:null}`; nonowner only, revoke membership and all user's socket room subscriptions.
 - GET /api/rooms/:id/messages?beforeSeq=N&afterSeq=N&limit=N -> MessagePage, messages ascending, limit default50 max100, exclusive cursors, reject both cursors together.
 - POST /api/rooms/:id/messages SendMessageInput -> `{data:Message}`; persist transactionally before ack/broadcast, unique(room,user,clientMessageId), stable per-room increasing seq; same clientMessageId cannot be used to substitute different payload/attachment.
@@ -38,7 +39,7 @@ All authenticated mutation routes (including logout, uploads and read cursors) r
 - DELETE /api/rooms/:id/members/:userId -> `{data:null}` owner only, never kick owner; durable removal/ban so stale invite cannot rejoin.
 - DELETE /api/messages/:messageId -> `{data:null}` sender or roomowner only; tombstone preserving seq, broadcast deletion.
 - POST /api/rooms/:id/attachments multipart file -> `{data:Attachment}`; members only, PNG/JPEG/WebP, <=10MiB, verify magic bytes, disallow SVG/HTML. Store image bytes atomically with metadata in the database; no application upload volume or public filesystem path.
-- GET /api/attachments/:id -> authorized byte response, room ACL, Content-Type and nosniff. Uploaded attachment may only be used by uploader in the same room. UI uses returned .url. Server retains attachment access policy for deleted messages (deny if no longer accessible).
+- GET /api/attachments/:id -> authorized byte response, room ACL, Content-Type and nosniff. Uploaded attachment may only be used by uploader in the same room. UI uses returned .url. Server retains attachment access policy for deleted messages (deny if no longer accessible). Pictures expire seven days after upload; after ACL checks, expired reads return 410 ATTACHMENT_EXPIRED before selecting bytes. Metadata adds expiresAt/expired for placeholders. A startup/minutely lifecycle hook clears at most 100 expired binary resources per sweep, retaining small tombstones for chat/idempotency integrity. See private-room-retention.md for schema and rollout implications.
 
 ## Socket.IO
 

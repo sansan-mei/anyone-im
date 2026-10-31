@@ -8,15 +8,15 @@ type Database = Prisma.TransactionClient
 export const attachmentMetadataSelect = { id: true, roomId: true, filename: true, mimeType: true, size: true, createdAt: true, expiredAt: true } as const
 export const messageInclude = { sender: true, attachment: { select: attachmentMetadataSelect } } as const
 type StoredMessage = Prisma.MessageGetPayload<{ include: typeof messageInclude }>
-export function attachmentDto(a: { id: string; roomId: string; filename: string; mimeType: string; size: number; createdAt: Date; expiredAt: Date | null }): AttachmentDTO {
-  return { id: a.id, roomId: a.roomId, filename: a.filename, mimeType: a.mimeType, size: a.size, url: `/api/attachments/${a.id}`, expiresAt: new Date(a.createdAt.getTime() + ATTACHMENT_TTL_MS).toISOString(), expired: attachmentExpired(a) }
+export function attachmentDto(a: { id: string; roomId: string; filename: string; mimeType: string; size: number; createdAt: Date; expiredAt: Date | null }, now = Date.now()): AttachmentDTO {
+  return { id: a.id, roomId: a.roomId, filename: a.filename, mimeType: a.mimeType, size: a.size, url: `/api/attachments/${a.id}`, expiresAt: new Date(a.createdAt.getTime() + ATTACHMENT_TTL_MS).toISOString(), expired: attachmentExpired(a, new Date(now)) }
 }
-export function messageDto(m: StoredMessage): MessageDTO {
-  return { id: m.id, roomId: m.roomId, seq: m.seq, clientMessageId: m.clientMessageId, text: m.deletedAt ? '' : m.text, attachment: !m.deletedAt && m.attachment ? attachmentDto(m.attachment) : null, sender: userDto(m.sender), createdAt: m.createdAt.toISOString(), deletedAt: m.deletedAt?.toISOString() ?? null }
+export function messageDto(m: StoredMessage, now = Date.now()): MessageDTO {
+  return { id: m.id, roomId: m.roomId, seq: m.seq, clientMessageId: m.clientMessageId, text: m.deletedAt ? '' : m.text, attachment: !m.deletedAt && m.attachment ? attachmentDto(m.attachment, now) : null, sender: userDto(m.sender), createdAt: m.createdAt.toISOString(), deletedAt: m.deletedAt?.toISOString() ?? null }
 }
 export class Rooms {
   online = (_roomId: string, _userId?: string): number => 0
-  constructor(readonly db: PrismaClient) {}
+  constructor(readonly db: PrismaClient, readonly now = () => Date.now()) {}
   async member(roomId: string, userId: string, tx: Database = this.db, owner = false) {
     const m = await tx.membership.findUnique({ where: { roomId_userId: { roomId, userId } } })
     if (!m?.active || m.banned || (owner && m.role !== 'owner')) return fail(403, 'FORBIDDEN', '无权访问此聊天室')
@@ -27,7 +27,7 @@ export class Rooms {
     if (!room) return fail(404, 'NOT_FOUND', '聊天室不存在')
     const m = room.memberships.find(m => m.userId === userId)
     if (!m && room.visibility !== 'public') return fail(403, 'FORBIDDEN', '无权访问此聊天室')
-    return { id: room.id, name: room.name, description: room.description, visibility: room.visibility as 'private' | 'public', role: m?.role === 'owner' ? 'owner' : 'member', memberCount: room.memberships.length, onlineCount: this.online(roomId), lastSeq: room.lastSeq, lastReadSeq: m?.lastReadSeq ?? 0, lastMessage: m && room.messages[0] ? messageDto(room.messages[0]) : null, updatedAt: room.updatedAt.toISOString() }
+    return { id: room.id, name: room.name, description: room.description, visibility: room.visibility as 'private' | 'public', role: m?.role === 'owner' ? 'owner' : 'member', memberCount: room.memberships.length, onlineCount: this.online(roomId), lastSeq: room.lastSeq, lastReadSeq: m?.lastReadSeq ?? 0, lastMessage: m && room.messages[0] ? messageDto(room.messages[0], this.now()) : null, updatedAt: room.updatedAt.toISOString() }
   }
   async create(userId: string, input: { name: string; description: string; visibility: string; passwordHash?: string }) {
     const room = await this.db.room.create({ data: { ...input, memberships: { create: { userId, role: 'owner' } } } })
@@ -74,7 +74,7 @@ export class Rooms {
     const results = await this.db.message.findMany({ where: { roomId, ...(before !== undefined ? { seq: { lt: before } } : after !== undefined ? { seq: { gt: after } } : {}) }, orderBy: { seq: forward ? 'asc' : 'desc' }, take: limit + 1, include: messageInclude })
     const messages = results.slice(0, limit)
     if (!forward) messages.reverse()
-    return { messages: messages.map(messageDto), hasMore: results.length > limit }
+    return { messages: messages.map(message => messageDto(message, this.now())), hasMore: results.length > limit }
   }
   async send(roomId: string, userId: string, sessionId: string, input: SendMessageInput) {
     return this.db.$transaction(async tx => {
@@ -87,16 +87,16 @@ export class Rooms {
       const previous = await tx.message.findUnique({ where: { roomId_userId_clientMessageId: { roomId, userId, clientMessageId: input.clientMessageId } }, include: messageInclude })
       if (previous) {
         if (previous.text !== input.text || previous.attachmentId !== (input.attachmentId ?? null)) return fail(409, 'IDEMPOTENCY_CONFLICT', '消息ID已用于不同内容')
-        return { message: messageDto(previous), created: false }
+        return { message: messageDto(previous, this.now()), created: false }
       }
       if (input.attachmentId) {
         const attachment = await tx.attachment.findUnique({ where: { id: input.attachmentId }, select: { roomId: true, userId: true, createdAt: true, expiredAt: true, message: { select: { id: true } } } })
         if (!attachment || attachment.roomId !== roomId || attachment.userId !== userId || attachment.message) return fail(403, 'INVALID_ATTACHMENT', '附件不可用')
-        if (attachmentExpired(attachment)) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
+        if (attachmentExpired(attachment, new Date(this.now()))) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
       }
       const updated = await tx.room.update({ where: { id: roomId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date() } })
       const message = await tx.message.create({ data: { roomId, userId, seq: updated.lastSeq, clientMessageId: input.clientMessageId, text: input.text, attachmentId: input.attachmentId }, include: messageInclude })
-      return { message: messageDto(message), created: true }
+      return { message: messageDto(message, this.now()), created: true }
     })
   }
   async read(roomId: string, userId: string, seq: number) {

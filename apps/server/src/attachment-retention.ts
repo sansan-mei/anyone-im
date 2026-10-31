@@ -7,6 +7,22 @@ export function attachmentExpired(attachment: { createdAt: Date; expiredAt: Date
 }
 
 type Gate = <T>(fn: () => Promise<T>) => Promise<T>
+export async function clearExpiredAttachmentBytes(db: Pick<PrismaClient, 'attachment'>, current: Date, batch = ATTACHMENT_CLEANUP_BATCH) {
+  if (!Number.isSafeInteger(batch) || batch < 1 || batch > ATTACHMENT_CLEANUP_BATCH) throw new Error('Invalid retention batch')
+  const cutoff = new Date(current.getTime() - ATTACHMENT_TTL_MS)
+  const ids = await db.attachment.findMany({
+    where: { expiredAt: null, createdAt: { lte: cutoff } },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: batch,
+    select: { id: true }
+  })
+  if (!ids.length) return 0
+  const result = await db.attachment.updateMany({
+    where: { id: { in: ids.map(row => row.id) }, expiredAt: null, createdAt: { lte: cutoff } },
+    data: { bytes: new Uint8Array(0), expiredAt: current }
+  })
+  return result.count
+}
 /** Erase binary resources, retaining only a small tombstone for stable chat IDs. */
 export function createAttachmentRetention(db: Pick<PrismaClient, 'attachment'>, gate: Gate, now = () => new Date(), intervalMs = 60000) {
   if (!Number.isSafeInteger(intervalMs) || intervalMs < 1) throw new Error('Invalid retention interval')
@@ -16,22 +32,7 @@ export function createAttachmentRetention(db: Pick<PrismaClient, 'attachment'>, 
   const run = (): Promise<number> => {
     if (stopped) return Promise.resolve(0)
     if (active) return active
-    active = gate(async () => {
-      const current = now()
-      const cutoff = new Date(current.getTime() - ATTACHMENT_TTL_MS)
-      const ids = await db.attachment.findMany({
-        where: { expiredAt: null, createdAt: { lte: cutoff } },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: ATTACHMENT_CLEANUP_BATCH,
-        select: { id: true }
-      })
-      if (!ids.length) return 0
-      const result = await db.attachment.updateMany({
-        where: { id: { in: ids.map(row => row.id) }, expiredAt: null, createdAt: { lte: cutoff } },
-        data: { bytes: new Uint8Array(0), expiredAt: current }
-      })
-      return result.count
-    }).finally(() => { active = undefined })
+    active = gate(() => clearExpiredAttachmentBytes(db, now())).finally(() => { active = undefined })
     return active
   }
   const tick = () => { void run().catch(() => { console.warn('Attachment retention sweep failed; retrying on next interval') }) }
