@@ -14,6 +14,10 @@
 
 不是完整的微信式 IM：第一版不包含好友系统、私聊、音视频、端到端加密、旧 ChatGPT 站点 SSO 或历史消息导入。这些都没有接触旧站数据库。
 
+## PWA 安装与通知
+
+个人设置内可安装到桌面/主屏幕、主动开启系统消息通知。通知仅在页面仍运行且后台/失焦时有效，不是关闭页面后的 Web Push；默认不展示聊天正文。使用、隐私、缓存更新和平台限制见 [docs/pwa.md](docs/pwa.md)。
+
 ## 端口
 
 - **正式服务：4100**，同一端口提供网页、HTTP API 和 Socket.IO。
@@ -57,7 +61,7 @@ bun run test:e2e
 
 根目录的 E2E 使用真实后端、真实 SQLite 和浏览器，不是假聊天 API。测试进程会创建隔离临时目录，结束时清理，并禁止复用已有的测试服务。默认不会继承外部 `DATABASE_URL`；MySQL E2E 必须显式选择，并只允许 loopback 上的 `anyone_ci` / `anyone_test_*` 测试库。
 
-原有 CI 继续验证 SQLite/浏览器和真实 MySQL/浏览器。新增 [Docker 构建与发布 CI](docs/docker-publish.md) 在 GitHub 托管 runner 构建 `linux/amd64` 镜像，并在发布前验证本次新镜像的非 root、生产 Cookie、10 MiB 图片边界，以及无应用卷重建后的图片持久化；只有默认分支且配置 `DOCKERHUB_TOKEN` 时才推送 `1596944197/anyone-im`。缺少凭据仍构建和烟测，不代表已发布。原工作流手动运行的 `published-image-smoke` 仅检查 Docker Hub 上已有的 `latest`，不能代替新镜像验证。烟测脚本拒绝在 GitHub Actions 以外直接运行。后端测试还有真实 Socket.IO、权限隔离、重启持久化和故障注入验证。详见 [后端说明](apps/server/README.md)。
+原有 CI 继续自动验证 SQLite/浏览器和真实 MySQL/浏览器，并检查构建产物。独立的[手动 Docker 发布工作流](docs/docker-publish.md) 只接受默认分支上的 `workflow_dispatch`，不由 push / PR 触发；缺少 `DOCKERHUB_TOKEN` 时直接失败。GitHub 托管 runner 构建 `linux/amd64` 镜像，并在发布前检查 PWA 文件、非 root、生产 Cookie、10 MiB 图片边界及无应用卷重建后的图片持久化；成功后推送同一个已验证镜像。原工作流手动运行的 `published-image-smoke` 仅检查 Docker Hub 上已有的 `latest`，不能代替新镜像验证。烟测脚本拒绝在 GitHub Actions 以外直接运行。后端测试还有真实 Socket.IO、权限隔离、重启持久化和故障注入验证。详见 [后端说明](apps/server/README.md)。
 
 ## 二级域名部署
 

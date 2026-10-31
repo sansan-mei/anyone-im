@@ -30,6 +30,7 @@ jobs:
       - run: bun x playwright test --config playwright.ui.config.ts
         working-directory: apps/web
       - run: bun run test:e2e
+      - run: bun run test:e2e:artifact
       - uses: actions/upload-artifact@v4
         if: always()
         with:

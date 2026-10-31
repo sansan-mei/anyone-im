@@ -4,8 +4,10 @@ import { ArrowUpRight } from 'lucide-react'
 import { publicApi as api, createSessionApi, errorText, SESSION_CHANGED_TEXT, type SessionApi } from './api'
 import { SessionContext } from './SessionContext'
 import { Workspace } from './Workspace'
+import { usePwaInstall } from './PwaSettings'
 export function Brand() { return <span className="brand"><span className="brand-mark" aria-hidden="true"><i/><i/></span>Anyone<span className="brand-dot">/</span></span> }
 export default function App() {
+  const install = usePwaInstall()
   const [user, setUser] = useState<User | null>(null), [booting, setBooting] = useState(true), [error, setError] = useState('')
   const [name, setName] = useState(''), [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'guest' | 'login' | 'register'>('guest'), [username, setUsername] = useState(''), [password, setPassword] = useState('')
@@ -47,7 +49,7 @@ export default function App() {
   }, [])
   if (booting) return <div className="boot"><Brand/><p role="status">正在连接你的会话…</p></div>
   if (stale) return <main className="boot"><Brand/><p role="alert">{SESSION_CHANGED_TEXT}</p>{error && <p role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => void confirmSession()}>重新确认身份</button></main>
-  if (user && sessionApi) return <SessionContext.Provider value={sessionApi}><Workspace key={user.id} user={user} setUser={u => { if (u?.id !== user.id) { epoch.current++; sessionApi.dispose(); announce() } setUser(u); if (!u) { setMode('guest'); setPassword('') } }}/></SessionContext.Provider>
+  if (user && sessionApi) return <SessionContext.Provider value={sessionApi}><Workspace install={install} key={user.id} user={user} setUser={u => { if (u?.id !== user.id) { epoch.current++; sessionApi.dispose(); announce() } setUser(u); if (!u) { setMode('guest'); setPassword('') } }}/></SessionContext.Provider>
   return <main className="auth-page">
     <header><Brand/><span className="eyebrow">在这里，保持联系</span></header>
     <section className="auth-panel">
