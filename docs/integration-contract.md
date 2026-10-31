@@ -27,7 +27,7 @@ All authenticated mutation routes (including logout, uploads and read cursors) r
 - POST /api/rooms CreateRoomInput -> `{data:RoomSummary}` owner membership.
 - POST /api/rooms/:id/join {} -> `{data:RoomSummary}` public rooms only. Private uses invite.
 - POST /api/rooms/:id/leave {} -> `{data:null}`; nonowner only, revoke membership and all user's socket room subscriptions.
-- GET /api/rooms/:id/messages?beforeSeq=N&afterSeq=N&limit=N -> MessagePage, messages ascending, limit default50 max100, exclusive cursors, reject both cursors together.
+- GET /api/rooms/:id/messages?beforeSeq=N&afterSeq=N&limit=N -> MessagePage, messages ascending, limit default15 max20 for both public and private rooms; explicit limits outside 1…20 return INVALID_INPUT. Exclusive cursors; reject both cursors together. These are per-response budgets, not a cap on retained history. Frontend initial/older/backfill/tombstone-refresh batches use 15 and continue while hasMore.
 - POST /api/rooms/:id/messages SendMessageInput -> `{data:Message}`; persist transactionally before ack/broadcast, unique(room,user,clientMessageId), stable per-room increasing seq; same clientMessageId cannot be used to substitute different payload/attachment.
 - PATCH /api/rooms/:id/read {seq} -> `{data:null}`, monotonic bounded by room.lastSeq.
 - GET /api/rooms/:id/members -> `{data:{members:Member[]}}` current members only.
