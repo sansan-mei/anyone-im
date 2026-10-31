@@ -20,9 +20,11 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
   const [roomsLoading, setRoomsLoading] = useState(true)
   const [profileOpen, setProfileOpen] = useState(false), [createOpen, setCreateOpen] = useState(false), [detailsOpen, setDetailsOpen] = useState(false)
   const [discoverOpen, setDiscoverOpen] = useState(false), [search, setSearch] = useState('')
+  const [joinRoomId, setJoinRoomId] = useState('')
   const [inviteCode, setInviteCode] = useState(() => location.pathname.match(/^\/invite\/([^/]+)\/?$/)?.[1] || '')
   const removedIds = useRef(new Set<string>())
-  const onJoined = (r: RoomSummary) => { removedIds.current.delete(r.id); state.allow(r.id); setRooms(old => [...old.filter(x => x.id !== r.id), r]); setActive(r.id) }
+  const consumeRoomLink = () => { const url = new URL(location.href); url.searchParams.delete('room'); history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`); setJoinRoomId('') }
+  const onJoined = (r: RoomSummary) => { removedIds.current.delete(r.id); state.allow(r.id); setRooms(old => [...old.filter(x => x.id !== r.id), r]); setActive(r.id); if (new URLSearchParams(location.search).get('room') === r.id) consumeRoomLink() }
   const closeInvite = useCallback(() => { setInviteCode(''); history.replaceState(null, '', '/') }, [])
   const state = useMessages(user, active)
   const notifications = useMessageNotifications(rooms)
@@ -34,12 +36,19 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
     onPresence: e => setRooms(old => old.map(r => r.id === e.roomId ? { ...r, onlineCount: e.count } : r)),
     onRemoved: e => { removedIds.current.add(e.roomId); setRooms(old => old.filter(r => r.id !== e.roomId)); setActive(id => id === e.roomId ? '' : id); setDetailsOpen(false); setError(e.reason === 'kicked' ? '你已被移出房间' : '你已离开房间') }
   })
-  useEffect(() => { api<{ rooms: RoomSummary[] }>('/rooms').then(r => {
-    setRooms(r.rooms)
-    const requested = new URLSearchParams(location.search).get('room')
-    setActive(r.rooms.some(room => room.id === requested) ? requested! : matchMedia('(max-width:700px)').matches ? '' : r.rooms[0]?.id ?? '')
-    if (requested) history.replaceState(null, '', location.pathname)
-  }).catch(e => setError(errorText(e))).finally(() => setRoomsLoading(false)) }, [user.id])
+  useEffect(() => {
+    let current = true
+    api<{ rooms: RoomSummary[] }>('/rooms').then(r => {
+      if (!current || !api.isCurrent()) return
+      setRooms(r.rooms)
+      const requested = new URLSearchParams(location.search).get('room')
+      const isMember = r.rooms.some(room => room.id === requested)
+      setActive(isMember ? requested! : matchMedia('(max-width:700px)').matches ? '' : r.rooms[0]?.id ?? '')
+      if (requested && isMember) consumeRoomLink()
+      else if (requested) { setJoinRoomId(requested); setDiscoverOpen(true) }
+    }).catch(e => { if (current) setError(errorText(e)) }).finally(() => { if (current) setRoomsLoading(false) })
+    return () => { current = false }
+  }, [api])
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const clicked = (event: MessageEvent) => {
@@ -78,7 +87,7 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
     </> : <div className="conversation-empty"><MessageSquare size={30}/><h2>选择一处，开始对话</h2><p>创建房间，或发现一个新的公开空间。</p></div>}</section>
     <Profile install={install} notifications={notifications} user={user} setUser={setUser} open={profileOpen} onOpenChange={setProfileOpen}/>
     <CreateRoom open={createOpen} onOpenChange={setCreateOpen} onCreated={onJoined}/>
-    <Discover open={discoverOpen} onOpenChange={setDiscoverOpen} joinedIds={rooms.map(r => r.id)} onJoined={onJoined}/>
+    <Discover open={discoverOpen} onOpenChange={setDiscoverOpen} initialRoomId={joinRoomId} joinedIds={rooms.map(r => r.id)} onJoined={onJoined}/>
     {inviteCode && <InviteJoin code={inviteCode} onClose={closeInvite} onJoined={onJoined}/>}
     {room && <RoomDetails key={room.id} room={room} user={user} open={detailsOpen} onOpenChange={setDetailsOpen} onChanged={refresh} onLeft={() => { removedIds.current.add(room.id); state.purge(room.id); setRooms(old => old.filter(x => x.id !== room.id)); setActive('') }}/>}
   </main>

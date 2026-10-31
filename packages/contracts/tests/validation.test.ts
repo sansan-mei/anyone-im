@@ -6,7 +6,7 @@ describe('shared input boundary', () => {
   test('validates a room name and rejects unknown authority fields', () => {
     const schema = (contracts as Record<string, any>).createRoomSchema
     expect(schema).toBeDefined()
-    expect(schema.safeParse({ name: '设计讨论', description: '', visibility: 'private' }).success).toBe(true)
+    expect(schema.safeParse({ name: '设计讨论', description: '', visibility: 'private', password: 'fixture-secret' }).success).toBe(true)
     expect(schema.safeParse({ name: '', description: '', visibility: 'private' }).success).toBe(false)
     expect(schema.safeParse({ name: 'x', description: '', visibility: 'private', ownerId: 'forged' }).success).toBe(false)
   })

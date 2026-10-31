@@ -1,0 +1,14 @@
+.pwa-actions {
+  display: grid;
+  gap: 24px;
+}
+
+.pwa-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pwa-action > .form-note {
+  margin: 0;
+}

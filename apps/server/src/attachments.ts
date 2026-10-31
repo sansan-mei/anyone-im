@@ -2,9 +2,14 @@ import { basename } from 'node:path'
 import { MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms, attachmentDto, attachmentMetadataSelect } from './rooms'
 import { fail, readLimited } from './security'
+import { attachmentExpired, clearExpiredAttachmentBytes } from './attachment-retention'
 
 export class Attachments {
   constructor(readonly rooms: Rooms) {}
+  // Internal maintenance only; callers serialize it through the application gate.
+  cleanupExpired(batch = 100) {
+    return clearExpiredAttachmentBytes(this.rooms.db, new Date(this.rooms.now()), batch)
+  }
   async prepare(request: Request, timeoutMs?: number) {
     if (!request.headers.get('content-type')?.startsWith('multipart/form-data;')) return fail(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用multipart文件上传')
     const bytes = await readLimited(request, MAX_ATTACHMENT_BYTES + 65536, timeoutMs)
@@ -34,10 +39,10 @@ export class Attachments {
     await this.rooms.member(roomId, userId)
     const { data, filename, mimeType } = prepared
     const attachment = await this.rooms.db.attachment.create({
-      data: { roomId, userId, filename, mimeType, size: data.length, bytes: data },
+      data: { roomId, userId, filename, mimeType, size: data.length, bytes: data, createdAt: new Date(this.rooms.now()) },
       select: attachmentMetadataSelect
     })
-    return attachmentDto(attachment)
+    return attachmentDto(attachment, this.rooms.now())
   }
   async download(id: string, userId: string) {
     // Check metadata/ACL before materializing a potentially 10 MiB blob.
@@ -47,6 +52,7 @@ export class Attachments {
     await this.rooms.member(attachment.roomId, userId)
     if (attachment.message?.deletedAt) return fail(404, 'NOT_FOUND', '附件不可用')
     if (!attachment.message && attachment.userId !== userId) return fail(403, 'FORBIDDEN', '附件尚未发布')
+    if (attachmentExpired(attachment, new Date(this.rooms.now()))) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
     const content = await this.rooms.db.attachment.findUnique({ where: { id }, select: { bytes: true } })
     if (!content) return fail(404, 'NOT_FOUND', '附件不存在')
     return new Response(new Uint8Array(content.bytes), { headers: { 'Content-Type': attachment.mimeType, 'Content-Length': String(attachment.size), 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, no-store', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}` } })

@@ -3,9 +3,10 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { RateLimitKind } from './security'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
+import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, joinRoomSchema, updateRoomPasswordSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { Attachments } from './attachments'
+import { createAttachmentRetention } from './attachment-retention'
 import { createRealtime } from './realtime'
 import { frontendResponse } from './frontend'
 import type { WebSocketData } from '@socket.io/bun-engine'
@@ -23,8 +24,12 @@ export interface ApplicationOptions {
   production?: boolean
   rateLimits?: Partial<Record<RateLimitKind, number>>
   bodyReadTimeoutMs?: number
+  attachmentCleanup?: boolean
+  attachmentCleanupIntervalMs?: number
+  attachmentRetention?: { now?: () => number; intervalMs?: number }
 }
 export async function createApplication(options: ApplicationOptions = {}) {
+  const attachmentNow = options.attachmentRetention?.now ?? (() => Date.now())
   const bodyReadTimeoutMs = options.bodyReadTimeoutMs ?? DEFAULT_BODY_READ_TIMEOUT_MS
   if (!Number.isSafeInteger(bodyReadTimeoutMs) || bodyReadTimeoutMs < 1 || bodyReadTimeoutMs > 300000) throw new Error('Invalid bodyReadTimeoutMs')
   const dataDir = resolve(options.dataDir ?? process.env.DATA_DIR ?? resolve(import.meta.dir, '../../../.data'))
@@ -46,9 +51,18 @@ export async function createApplication(options: ApplicationOptions = {}) {
   const rateLimit = createRateLimiter(options.rateLimits)
   const preparedJson = new WeakMap<Request, unknown>()
   const dummyPasswordHash = await Bun.password.hash(randomToken(), { algorithm: 'argon2id', memoryCost: 19456, timeCost: 2 })
+  // Reject excess work rather than queue unbounded memory-hard password tasks.
+  let passwordTasks = 0
+  const passwordWork = async <T>(run: () => Promise<T>) => {
+    if (passwordTasks >= 2) return fail(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试')
+    passwordTasks++
+    try { return await run() } finally { passwordTasks-- }
+  }
   let cleanupRealtime: (() => void) | undefined
+  let retention: ReturnType<typeof createAttachmentRetention> | undefined
   try {
   await db.$connect()
+  retention = createAttachmentRetention(db, gate, () => new Date(attachmentNow()), options.attachmentCleanupIntervalMs ?? options.attachmentRetention?.intervalMs)
   const app = new Hono<{ Bindings: Bun.Server<WebSocketData> }>()
   app.onError((error, c) => c.json(errorBody(error), (error instanceof ApiFailure ? error.status : 500) as ContentfulStatusCode))
   app.notFound(c => c.json({ error: { code: 'NOT_FOUND', message: '资源不存在' } }, 404))
@@ -63,7 +77,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       if (!checkOrigin(c.req.raw)) return fail(403, 'ORIGIN_REJECTED', '请求来源无效')
       if (/^\/api\/auth\/(guest|register|login)$/.test(c.req.path)) rateLimit('AUTH', ip)
-      else if (/\/(join|invites)$/.test(c.req.path) || c.req.path.startsWith('/api/invites/')) rateLimit('JOIN', sessionHash(c.req.header('cookie') ?? null) ?? ip)
+      else if (/\/(join|invites|password)$/.test(c.req.path) || c.req.path.startsWith('/api/invites/')) rateLimit('JOIN', sessionHash(c.req.header('cookie') ?? null) ?? ip)
       if (!/\/attachments$/.test(c.req.path)) {
         const bytes = await readLimited(c.req.raw, 16384, bodyReadTimeoutMs)
         let value: unknown = {}
@@ -71,7 +85,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
           if (!c.req.header('content-type')?.startsWith('application/json')) return fail(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用JSON格式')
           try { value = JSON.parse(new TextDecoder().decode(bytes)) } catch { return fail(400, 'INVALID_INPUT', 'JSON无效') }
         }
-        const shaped = /\/auth\/(guest|register|login)$|\/me$|^\/api\/rooms$|\/rooms\/[^/]+\/(messages|read)$/.test(c.req.path)
+        const shaped = /\/auth\/(guest|register|login)$|\/me$|^\/api\/rooms$|\/rooms\/[^/]+\/(messages|read|join|password)$/.test(c.req.path)
         if (!shaped && (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length)) return fail(400, 'INVALID_INPUT', '请求参数无效')
         preparedJson.set(c.req.raw, value)
       }
@@ -167,7 +181,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
       return c.json({ data: userDto(user) })
     })
   })
-  const rooms = new Rooms(db)
+  const rooms = new Rooms(db, attachmentNow)
   const attachments = new Attachments(rooms)
   app.post('/api/rooms/:id/attachments', async c => {
     await gate(async () => {
@@ -200,20 +214,54 @@ export async function createApplication(options: ApplicationOptions = {}) {
     return c.json({ data: { rooms: await Promise.all(publicRooms.map(r => rooms.summary(r.id, s.userId))) } })
   }))
   app.post('/api/rooms', async c => {
-    const input = parse(createRoomSchema, await json(c))
+    await gate(async () => { const s = await auth(c.req.raw); rateLimit('JOIN', s.id) })
+    const { password, ...input } = parse(createRoomSchema, await json(c))
+    const passwordHash = input.visibility === 'private' ? await passwordWork(() => Bun.password.hash(password!, { algorithm: 'argon2id', memoryCost: 19456, timeCost: 2 })) : undefined
     return gate(async () => {
       const s = await auth(c.req.raw)
-      const room = await rooms.create(s.userId, input)
+      const room = await rooms.create(s.userId, { ...input, passwordHash })
       await realtime.joinUser(room.id, s.userId)
       return c.json({ data: room })
     })
   })
-  app.post('/api/rooms/:id/join', async c => gate(async () => {
-    const s = await auth(c.req.raw)
-    const room = await rooms.join(c.req.param('id'), s.userId)
-    await realtime.joinUser(room.id, s.userId)
-    return c.json({ data: room })
-  }))
+  app.post('/api/rooms/:id/join', async c => {
+    const input = parse(joinRoomSchema, await json(c))
+    const snapshot = await gate(async () => {
+      const s = await auth(c.req.raw)
+      const room = await db.room.findUnique({ where: { id: c.req.param('id') }, select: { visibility: true, passwordHash: true } })
+      return { userId: s.userId, room }
+    })
+    let verifiedHash: string | undefined
+    if (snapshot.room?.visibility !== 'public') {
+      const valid = await passwordWork(() => Bun.password.verify(input.password ?? '', snapshot.room?.passwordHash ?? dummyPasswordHash))
+      if (!snapshot.room?.passwordHash || !valid) return fail(404, 'NOT_FOUND', '聊天室不存在')
+      verifiedHash = snapshot.room.passwordHash
+    }
+    return gate(async () => {
+      const s = await auth(c.req.raw)
+      if (s.userId !== snapshot.userId) return fail(409, 'SESSION_CHANGED', '登录身份已更改，请刷新后重试')
+      const room = await rooms.join(c.req.param('id'), s.userId, undefined, verifiedHash)
+      await realtime.joinUser(room.id, s.userId)
+      return c.json({ data: room })
+    })
+  })
+  app.patch('/api/rooms/:id/password', async c => {
+    const input = parse(updateRoomPasswordSchema, await json(c))
+    const checkOwner = async () => {
+      const s = await auth(c.req.raw)
+      await rooms.member(c.req.param('id'), s.userId, db, true)
+      const room = await db.room.findUnique({ where: { id: c.req.param('id') }, select: { visibility: true } })
+      if (room?.visibility !== 'private') return fail(400, 'INVALID_INPUT', '仅私密房间可以设置密码')
+      return s.userId
+    }
+    const owner = await gate(checkOwner)
+    const passwordHash = await passwordWork(() => Bun.password.hash(input.password, { algorithm: 'argon2id', memoryCost: 19456, timeCost: 2 }))
+    return gate(async () => {
+      if (await checkOwner() !== owner) return fail(409, 'SESSION_CHANGED', '登录身份已更改，请刷新后重试')
+      await db.room.update({ where: { id: c.req.param('id') }, data: { passwordHash } })
+      return c.json({ data: null })
+    })
+  })
   app.post('/api/rooms/:id/leave', async c => gate(async () => {
     const s = await auth(c.req.raw)
     await rooms.remove(c.req.param('id'), s.userId, s.userId, false)
@@ -286,8 +334,9 @@ export async function createApplication(options: ApplicationOptions = {}) {
   app.get('*', async c => await frontendResponse(c.req.raw, webDist) ?? c.notFound())
   const server = Bun.serve({ ...realtime.engine.handler(), hostname: options.host ?? process.env.HOST ?? '127.0.0.1', port: options.port ?? Number(process.env.PORT ?? 4100), maxRequestBodySize: MAX_ATTACHMENT_BYTES + 65536, fetch: (request, server) => app.fetch(request, server) })
   listenerOrigin ??= `http://${server.hostname}:${server.port}`
+  if (options.attachmentCleanup !== false) retention.start()
   let closePromise: Promise<void> | undefined
-  const close = () => closePromise ??= (async () => { realtime.close(); await server.stop(true); await gate(async () => {}); await db.$disconnect() })()
-  return { url: `http://${server.hostname}:${server.port}`, server, close }
-  } catch (error) { cleanupRealtime?.(); await db.$disconnect(); throw error }
+  const close = () => closePromise ??= (async () => { realtime.close(); await retention?.stop(); await server.stop(true); await gate(async () => {}); await db.$disconnect() })()
+  return { url: `http://${server.hostname}:${server.port}`, server, close, cleanupExpiredAttachments: retention.run }
+  } catch (error) { cleanupRealtime?.(); await retention?.stop(); await db.$disconnect(); throw error }
 }

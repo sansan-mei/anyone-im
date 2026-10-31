@@ -15,7 +15,7 @@ for (const visibility of ['public', 'private'] as const) {
       const peerId = await enter(peer.request, '分页成员')
       const ownerHeaders = { 'X-Anyone-User-Id': ownerId }
       const peerHeaders = { 'X-Anyone-User-Id': peerId }
-      const created = await page.request.post('/api/rooms', { headers: ownerHeaders, data: { name: '分页验证', visibility } })
+      const created = await page.request.post('/api/rooms', { headers: ownerHeaders, data: { name: '分页验证', visibility, ...(visibility === 'private' ? { password: 'pagination-room-password' } : {}) } })
       expect(created.ok()).toBe(true)
       const roomId = (await created.json()).data.id
       const path = `/api/rooms/${roomId}/messages`
