@@ -20,9 +20,39 @@
 
 ## 缓存与更新
 
-生产 Hono 白名单明确提供 `/sw.js`、`/manifest.webmanifest`、三个 `/icons/*.png` 与 `/offline.html`。worker 位于根路径，作用域 `/`，JavaScript MIME，`Cache-Control: no-cache`；注册使用 `updateViaCache: none`。
+生产 Hono 白名单明确提供 `/sw.js`、`/manifest.webmanifest`、三个安装图标、专用 Apple touch 图标、SVG/ICO/16/32px favicon 与 `/offline.html`（具体路径见下表）。worker 位于根路径，作用域 `/`，JavaScript MIME，`Cache-Control: no-cache`；注册使用 `updateViaCache: none`。
 
-缓存名 `anyone-shell-v1`，只预缓存离线说明页与三个公开图标。不缓存首页 HTML、JS/CSS、任何 API/Socket.IO、聊天、会话、认证或附件响应；应用仍依赖网络和服务端 ACL。离线导航只给出真实离线说明，不重建已登录账户或伪造聊天。升级离线页/图标时递增缓存版本，激活后只删除本应用旧 shell 缓存，保留其他应用缓存。新 worker 等旧页面自然关闭后激活，不强制 `skipWaiting` / 刷新，避免丢草稿。
+缓存名 `anyone-shell-v2`，只预缓存离线说明页与三个公开图标。不缓存首页 HTML、JS/CSS、任何 API/Socket.IO、聊天、会话、认证或附件响应；应用仍依赖网络和服务端 ACL。离线导航只给出真实离线说明，不重建已登录账户或伪造聊天。升级离线页/图标时递增缓存版本，激活后只删除本应用旧 shell 缓存，保留其他应用缓存。新 worker 等旧页面自然关闭后激活，不强制 `skipWaiting` / 刷新，避免丢草稿。
+
+## 图标设计与再生成
+
+图形直接参考 2FA 项目的「粗体字母 + 圆环」印章式家族：中央清晰的 `IM` 大写字母，与 FileControl 的 `FC` 对应。不使用对话气泡、圆点、彩色点缀或预烘焙的外层圆角；暖白 `#f8faf9` 铺满整个正方形，石墨黑 `#202a2b` 为唯一前景色。512 画布中圆环中心 `(256, 256)`、半径 187、线宽 18；字形范围 x=143…374、y=174…338，使用原创几何路径而非系统字体。包括标准图标在内，圆环和字母均在中心半径 40% 的安全圆内，系统可自行裁成圆形或 squircle。应用原有主题色与 manifest 身份不变。
+
+唯一矢量母版是 `apps/web/public/favicon.svg`；`scripts/generate-icons.py` 从它生成所有栅格资产，4 倍超采样后缩小，输出不透明 RGB PNG。`any` 与 `maskable` 使用同一安全构图，但保留独立文件和各自的 manifest purpose。
+
+| 用途 | 公开路径 | 尺寸 |
+| --- | --- | --- |
+| Manifest 标准图标 / 通知 icon | `/icons/icon-192.png` | 192 × 192 |
+| Manifest 标准图标 | `/icons/icon-512.png` | 512 × 512 |
+| Manifest maskable | `/icons/maskable-512.png` | 512 × 512 |
+| Apple touch | `/icons/apple-touch-icon.png` | 180 × 180 |
+| 标签页 PNG | `/icons/favicon-32.png`, `/icons/favicon-16.png` | 32、16 |
+| 标签页矢量 / 母版 | `/favicon.svg` | viewBox 512 × 512 |
+| 传统浏览器回退 | `/favicon.ico` | 内含 16、32、48 |
+
+仅再生成时需要 Python、系统 Cairo 库、Pillow 与 CairoSVG；服务器、Bun 安装和 CI 不依赖这些工具，提交生成资产即可。
+
+```sh
+# 独立、被 git 忽略的开发虚拟环境；不改变应用运行时依赖。
+python3 -m venv .data-icons-venv
+.data-icons-venv/bin/pip install Pillow==13.0.0 CairoSVG==2.9.0
+.data-icons-venv/bin/python scripts/generate-icons.py --preview .data-icons-preview/contact-sheet.png
+bun test scripts/pwa-icons.test.ts apps/server/tests/pwa-icons.test.ts apps/server/tests/pwa-worker.test.ts
+```
+
+可选预览是 1080 × 840 PNG，包含 512px 原图、64/32/16px 实际尺寸、圆形与 squircle 裁切；不是实际系统安装截图。每次修改母版后重新生成，并递增 `sw.js` 的 shell 版本。公开图标仍用稳定路径和 `no-cache` 重新验证，通知/manifest/Apple/favicon 不引入彼此不一致的 query 版本；v2 worker 激活后替换 v1 静态图标缓存，未扩大缓存范围。
+
+**已安装的主屏幕图标由浏览器/操作系统单独缓存**，worker 激活不等于桌面图标立即更新。先保存草稿并关闭所有旧应用窗口，再重新打开；移动系统仍显示旧图时可能需要等待系统刷新，或由用户自行移除快捷方式后重新添加。不要为了刷新图标清空站点数据（可能丢失访客身份）。本地自动化只证明构建资产、浏览器解码、metadata 与缓存行为；未验证真实 Android/iOS 安装后的图标更新。
 
 ## 验证
 

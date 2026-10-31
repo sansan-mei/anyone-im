@@ -456,6 +456,32 @@ test('static frontend serves installable metadata, real icons and root worker; i
     expect(bytes.readUInt32BE(20)).toBe(size)
   }
   expect(manifest.icons.some((i: { purpose: string }) => i.purpose === 'maskable')).toBe(true)
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/icons/apple-touch-icon.png')
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('sizes', '180x180')
+  const surfaces = [
+    { src: '/icons/apple-touch-icon.png', size: 180, mime: 'image/png' },
+    { src: '/icons/favicon-32.png', size: 32, mime: 'image/png' },
+    { src: '/icons/favicon-16.png', size: 16, mime: 'image/png' },
+    { src: '/favicon.svg', size: 512, mime: 'image/svg+xml' },
+    { src: '/favicon.ico', size: 48, mime: 'image/x-icon' }
+  ]
+  for (const icon of surfaces) {
+    const response = await page.request.get(icon.src)
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain(icon.mime)
+    expect(response.headers()['cache-control']).toBe('no-cache')
+    expect(response.headers()['x-content-type-options']).toBe('nosniff')
+    if (icon.src !== '/icons/apple-touch-icon.png') await expect(page.locator(`link[rel="icon"][href="${icon.src}"]`)).toHaveCount(1)
+  }
+  for (const icon of [...surfaces, ...manifest.icons.map((i: { src: string; sizes: string }) => ({ src: i.src, size: Number(i.sizes.split('x')[0]) }))]) {
+    const decoded = await page.evaluate(async src => {
+      const image = new Image(); image.src = src; await image.decode()
+      const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(image, 0, 0)
+      return { size: [image.naturalWidth, image.naturalHeight], corner: [...ctx.getImageData(0, 0, 1, 1).data] }
+    }, icon.src)
+    expect(decoded).toEqual({ size: [icon.size, icon.size], corner: [248, 250, 249, 255] })
+  }
   const sw = await page.request.get('/sw.js')
   expect(sw.ok()).toBe(true)
   expect(sw.headers()['content-type']).toContain('javascript')

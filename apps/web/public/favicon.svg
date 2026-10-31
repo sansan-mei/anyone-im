@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Anyone IM — IM monogram seal</title>
+  <rect width="512" height="512" fill="#f8faf9"/>
+  <g fill="#202a2b">
+    <circle cx="256" cy="256" r="187" fill="none" stroke="#202a2b" stroke-width="18"/>
+    <path d="M143 174h62v30h-14v104h14v30h-62v-30h14V204h-14Z"/>
+    <path d="M228 174h34l39 75 39-75h34v164h-33V238l-29 58h-22l-29-58v100h-33Z"/>
+  </g>
+</svg>

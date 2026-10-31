@@ -1,6 +1,6 @@
 /* Static offline shell only. Bump this version when shell/icon contents change.
  * Updates wait for old clients to close: no forced reload or draft loss. */
-const CACHE = 'anyone-shell-v1'
+const CACHE = 'anyone-shell-v2'
 self.addEventListener('notificationclick', event => {
   event.notification.close()
   event.waitUntil((async () => {
