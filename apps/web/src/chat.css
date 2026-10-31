@@ -278,10 +278,21 @@
   padding: 8px 10px 4px;
 }
 
-.image-error {
+.image-error, .image-expired {
   color: var(--muted);
   font-size: var(--text-supporting);
   white-space: normal;
+}
+
+.image-expired {
+  display: block;
+  padding: 12px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.image-expired + .message-text {
+  margin-top: 8px;
 }
 
 .attachment-preview {

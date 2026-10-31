@@ -1,30 +1,14 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, MessageSquare, RotateCcw, ImagePlus, ImageIcon, X, Trash2 } from 'lucide-react'
-import type { Attachment, Message, RoomSummary, User } from '@anyone-im/contracts'
+import type { Message, RoomSummary, User } from '@anyone-im/contracts'
 import type { useMessages } from './useMessages'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 import { Modal, rememberFocus } from './Modal'
-import { safeAttachmentUrl, useAttachment } from './useAttachment'
+import { useAttachment } from './useAttachment'
+import { AttachedImage } from './AttachedImage'
 export type MessageState = ReturnType<typeof useMessages>
 const positions = new Map<string, { top: number; bottom: boolean }>()
-function AttachedImage({ attachment, onLoad }: { attachment: Attachment; onLoad?: () => void }) {
-  const api = useApi()
-  const [failed, setFailed] = useState(false), [url, setUrl] = useState(''), [attempt, setAttempt] = useState(0)
-  const source = safeAttachmentUrl(attachment)
-  useEffect(() => {
-    const controller = new AbortController(); let objectUrl = ''
-    setUrl(''); setFailed(false)
-    if (!source) { setFailed(true); return }
-    // Native img/a requests cannot carry the expected-user precondition. Fetch a bound blob instead.
-    void api.resource(new URL(source, location.origin).pathname.replace(/^\/api/, ''), controller.signal).then(blob => {
-      if (!controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl) }
-    }).catch(() => { if (!controller.signal.aborted) setFailed(true) })
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [api, source, attempt])
-  if (!failed && !url) return <span role="status">正在加载图片…</span>
-  return failed ? <span className="image-error">图片暂不可用{source && <button className="text-button" onClick={() => setAttempt(n => n + 1)}>重试加载图片</button>}</span> : <a href={url} target="_blank" rel="noreferrer" className="image-link" aria-label={`查看图片 ${attachment.filename}`}><img src={url} alt={attachment.filename} onError={() => setFailed(true)} onLoad={onLoad}/></a>
-}
 export function Chat({ user, room, state, visible = true, onRead }: { user: User; room: RoomSummary; state: MessageState; visible?: boolean; onRead: (seq: number) => void }) {
   const api = useApi()
   const [draft, setDraft] = useState(''), [atBottom, setAtBottom] = useState(true), [readError, setReadError] = useState('')

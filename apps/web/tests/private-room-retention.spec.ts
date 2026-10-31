@@ -36,6 +36,31 @@ test('private creation defaults to password entry and never auto-generates invit
   expect(page.url()).not.toContain('only')
 })
 
+test('closing creation clears only the password draft, and public creation omits it', async ({ page }) => {
+  await fixture(page)
+  await page.route('**/api/rooms', route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    expect(route.request().postDataJSON()).toEqual({ name: '保留名称', description: '保留介绍', visibility: 'public' })
+    return route.fulfill({ json: { data: { ...room, name: '保留名称', visibility: 'public' } } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '新建房间' }).click()
+  await page.getByLabel('房间名称').fill('保留名称')
+  await page.getByLabel('房间介绍').fill('保留介绍')
+  await page.getByLabel('房间密码', { exact: true }).fill('temporary password')
+  await page.getByRole('button', { name: '关闭弹窗' }).click()
+  await page.getByRole('button', { name: '新建房间' }).click()
+  await expect(page.getByLabel('房间名称')).toHaveValue('保留名称')
+  await expect(page.getByLabel('房间介绍')).toHaveValue('保留介绍')
+  await expect(page.getByLabel('房间密码', { exact: true })).toHaveValue('')
+  await expect(page.getByRole('button', { name: '创建房间', exact: true })).toBeDisabled()
+  await page.getByLabel('房间密码', { exact: true }).fill('temporary password')
+  await page.getByRole('radio', { name: /公开房间/ }).check()
+  await expect(page.getByLabel('房间密码', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '创建房间', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '保留名称', exact: true })).toBeVisible()
+})
+
 test('room-id links open a password join dialog; discovery also exposes private join', async ({ page }) => {
   await fixture(page)
   await page.route('**/api/rooms/retention-private/join', route => {
@@ -102,6 +127,8 @@ test('an open image expires at the deadline without refetching bytes or retainin
   await expect(page.getByRole('img', { name: 'live.png' })).toBeVisible()
   const preview = page.getByRole('link', { name: '查看图片 live.png' })
   await expect(preview).toBeVisible()
+  const fetched = byteRequests
+  expect(fetched).toBeGreaterThan(0)
   await page.clock.runFor(9999)
   await expect(preview).toBeVisible()
   await page.clock.runFor(1)
@@ -109,7 +136,7 @@ test('an open image expires at the deadline without refetching bytes or retainin
   await expect(page.getByText('到期仍保留说明', { exact: true })).toBeVisible()
   await expect(preview).toHaveCount(0)
   await expect(page.getByRole('img', { name: 'live.png' })).toHaveCount(0)
-  expect(byteRequests).toBe(1)
+  expect(byteRequests).toBe(fetched)
 })
 
 test('a server expiry response overrides a slow browser clock without offering a retry', async ({ page }) => {
