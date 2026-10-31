@@ -7,7 +7,7 @@ export async function frontendResponse(request: Request, webDist: string): Promi
   let relative: string
   if (path === '/' || /^\/invite\/[A-Za-z0-9_-]+\/?$/.test(path)) relative = 'index.html'
   else if (/^\/assets\/[A-Za-z0-9_./-]+$/.test(path) && !path.split('/').some(p => p.startsWith('.') || p === '..') && !path.endsWith('.map')) relative = path.slice(1)
-  else if (['/favicon.ico', '/favicon.svg', '/manifest.webmanifest', '/robots.txt', '/sw.js', '/offline.html', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png'].includes(path)) relative = path.slice(1)
+  else if (['/favicon.ico', '/favicon.svg', '/manifest.webmanifest', '/robots.txt', '/sw.js', '/offline.html', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png', '/icons/apple-touch-icon.png', '/icons/favicon-32.png', '/icons/favicon-16.png'].includes(path)) relative = path.slice(1)
   else return null
   try {
     const root = await realpath(webDist), filename = resolve(root, relative)

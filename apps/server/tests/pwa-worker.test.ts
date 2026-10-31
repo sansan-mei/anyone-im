@@ -19,6 +19,37 @@ async function worker(sessionUser = 'owner', urls = ['https://im.test/']) {
   return { handlers, opened, posted, focused, requests }
 }
 
+test('icon refresh creates v2 shell, retires only old app caches and keeps private responses out', async () => {
+  const handlers: Record<string, (event: any) => void> = {}
+  const opened: string[] = [], deleted: string[] = [], shell: string[] = []
+  let claimed = false, skipped = false
+  runInNewContext(await readFile(new URL('../../web/public/sw.js', import.meta.url), 'utf8'), {
+    URL,
+    self: { location: { origin: 'https://im.test' }, addEventListener: (name: string, handler: (event: any) => void) => { handlers[name] = handler }, skipWaiting: () => { skipped = true }, clients: { claim: async () => { claimed = true } } },
+    caches: {
+      open: async (name: string) => { opened.push(name); return { addAll: async (urls: string[]) => { shell.push(...urls) } } },
+      keys: async () => ['anyone-shell-v1', 'anyone-shell-v2', 'other-app-cache'],
+      delete: async (name: string) => { deleted.push(name) }
+    }
+  })
+  let pending: Promise<unknown> | undefined
+  const waitUntil = (promise: Promise<unknown>) => { pending = promise }
+  handlers.install!({ waitUntil })
+  await pending
+  expect(opened).toEqual(['anyone-shell-v2'])
+  expect(shell).toEqual(['/offline.html', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png'])
+  handlers.activate!({ waitUntil })
+  await pending
+  expect(deleted).toEqual(['anyone-shell-v1'])
+  expect(claimed).toBe(true)
+  expect(skipped).toBe(false)
+  for (const [path, method] of [['/api/session', 'GET'], ['/socket.io/', 'GET'], ['/api/attachments/private', 'GET'], ['/icons/icon-192.png?private=1', 'GET'], ['/icons/icon-192.png', 'POST']]) {
+    let intercepted = false
+    handlers.fetch!({ request: { url: `https://im.test${path}`, method, mode: 'cors' }, respondWith: () => { intercepted = true } })
+    expect(intercepted).toBe(false)
+  }
+})
+
 test('notification click validates current cookie identity then focuses same-origin app and selects only a room id', async () => {
   const w = await worker()
   expect(w.handlers.notificationclick).toBeFunction()
