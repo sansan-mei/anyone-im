@@ -57,7 +57,7 @@ bun run test:e2e
 
 根目录的 E2E 使用真实后端、真实 SQLite 和浏览器，不是假聊天 API。测试进程会创建隔离临时目录，结束时清理，并禁止复用已有的测试服务。默认不会继承外部 `DATABASE_URL`；MySQL E2E 必须显式选择，并只允许 loopback 上的 `anyone_ci` / `anyone_test_*` 测试库。
 
-自动 CI 验证 SQLite/浏览器和真实 MySQL/浏览器，不构建 Docker 镜像。用户自行构建并发布镜像后，可手动运行拉取镜像的容器烟测，检查非 root、生产 Cookie，以及无应用卷重建后的图片持久化；烟测脚本拒绝在 GitHub Actions 以外直接运行。后端测试还有真实 Socket.IO、权限隔离、重启持久化和故障注入验证。详见 [后端说明](apps/server/README.md)。
+原有 CI 继续验证 SQLite/浏览器和真实 MySQL/浏览器。新增 [Docker 构建与发布 CI](docs/docker-publish.md) 在 GitHub 托管 runner 构建 `linux/amd64` 镜像，并在发布前验证本次新镜像的非 root、生产 Cookie、10 MiB 图片边界，以及无应用卷重建后的图片持久化；只有默认分支且配置 `DOCKERHUB_TOKEN` 时才推送 `1596944197/anyone-im`。缺少凭据仍构建和烟测，不代表已发布。原工作流手动运行的 `published-image-smoke` 仅检查 Docker Hub 上已有的 `latest`，不能代替新镜像验证。烟测脚本拒绝在 GitHub Actions 以外直接运行。后端测试还有真实 Socket.IO、权限隔离、重启持久化和故障注入验证。详见 [后端说明](apps/server/README.md)。
 
 ## 二级域名部署
 

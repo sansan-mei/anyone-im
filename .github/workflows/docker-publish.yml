@@ -1,0 +1,116 @@
+name: Docker build and publish
+
+on:
+  push:
+    branches: [main, ci/docker-publish]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-publish-${{ github.event_name }}-${{ github.ref }}
+  # Do not interrupt a default-branch publication between its two tags.
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  docker:
+    if: github.repository == 'sansan-mei/anyone-im'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: 1596944197/anyone-im
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Determine publication eligibility
+        id: publish
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          if [[ -z "$DOCKERHUB_TOKEN" ]]; then
+            echo '::warning::DOCKERHUB_TOKEN is missing; building and smoke-testing only, without Docker Hub login or push.'
+          elif [[ "$GITHUB_EVENT_NAME" != 'pull_request' && "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Non-default branch or pull request: building and smoke-testing only.'
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: 1596944197/anyone-im
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=long
+
+      - name: Build and load the image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: anyone-im:ci
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=anyone-im-amd64
+          cache-to: type=gha,mode=max,scope=anyone-im-amd64
+
+      - name: Smoke-test the newly built image before publication
+        run: bash scripts/ci-container-smoke.sh anyone-im:ci
+
+      - name: Log in to Docker Hub
+        if: steps.publish.outputs.enabled == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: docker.io
+          username: '1596944197'
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          logout: true
+
+      # Push the exact local image that passed the smoke test; do not rebuild it.
+      - name: Publish the tested image
+        if: steps.publish.outputs.enabled == 'true'
+        env:
+          TAGS: ${{ steps.metadata.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag anyone-im:ci "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
+
+      - name: Record verification scope
+        if: success()
+        env:
+          PUBLISHED: ${{ steps.publish.outputs.enabled }}
+        shell: bash
+        run: |
+          {
+            echo '### Docker verification'
+            echo "- Source commit: $GITHUB_SHA"
+            echo '- Built linux/amd64 and passed the new-image MySQL container smoke test.'
+            if [[ "$PUBLISHED" == 'true' ]]; then
+              echo "- Published $IMAGE:latest and $IMAGE:sha-$GITHUB_SHA."
+            else
+              echo '- Build-only validation: Docker Hub login/push skipped; no publication verified.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
