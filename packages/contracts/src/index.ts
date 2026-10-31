@@ -13,6 +13,8 @@ export const sendMessageSchema = z.object(messageFields).strict().refine((v) => 
 export const socketSendMessageSchema = z.object({ ...messageFields, roomId: z.string().min(1).max(64) }).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
 export const readSchema = z.object({ seq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict()
 export const DEFAULT_PORT = 4100
+export const DEFAULT_MESSAGE_PAGE_SIZE = 15
+export const MAX_MESSAGE_PAGE_SIZE = 20
 export const SESSION_COOKIE = 'anyone_session'
 export const EXPECTED_USER_HEADER = 'X-Anyone-User-Id'
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024

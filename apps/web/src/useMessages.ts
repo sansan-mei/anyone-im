@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attachment, Message, MessagePage, SendMessageInput, User } from '@anyone-im/contracts'
+import { DEFAULT_MESSAGE_PAGE_SIZE } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export interface Outgoing { roomId: string; userId: string; input: SendMessageInput; attachment?: Attachment; state: 'sending' | 'failed'; error?: string }
@@ -46,7 +47,7 @@ export function useMessages(user: User, roomId: string) {
     if (requests.current.has(id)) return requests.current.get(id)
     setLoadingIds(old => ({ ...old, [id]: true })); setErrors(old => ({...old, [id]: ''}))
     const promise = (async () => {
-      try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?limit=50`); initialCursors.current[id] = page.messages.at(-1)?.seq || 0; merge(id, page.messages); setHasOlder(old => ({ ...old, [id]: page.hasMore })); initialized.current.add(id) }
+      try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?limit=${DEFAULT_MESSAGE_PAGE_SIZE}`); initialCursors.current[id] = page.messages.at(-1)?.seq || 0; merge(id, page.messages); setHasOlder(old => ({ ...old, [id]: page.hasMore })); initialized.current.add(id) }
       catch(e) { setErrors(old => ({ ...old, [id]: errorText(e) })) }
       finally { setLoadingIds(old => ({...old, [id]: false})); requests.current.delete(id) }
     })()
@@ -58,7 +59,7 @@ export function useMessages(user: User, roomId: string) {
     const before = messagesRef.current[roomId]?.[0]?.seq
     if (!before) return
     setOlderLoading(true); setErrors(old => ({...old, [roomId]: ''}))
-    try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(roomId)}/messages?beforeSeq=${before}&limit=50`); merge(roomId, page.messages); setHasOlder(old => ({...old, [roomId]: page.hasMore})) }
+    try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(roomId)}/messages?beforeSeq=${before}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`); merge(roomId, page.messages); setHasOlder(old => ({...old, [roomId]: page.hasMore})) }
     catch(e) { setErrors(old => ({...old, [roomId]: errorText(e)})) }
     finally { setOlderLoading(false) }
   }, [roomId, olderLoading, merge])
@@ -70,7 +71,7 @@ export function useMessages(user: User, roomId: string) {
     let cursor = cached[0].seq - 1
     // Deletions retain old sequence numbers, so afterSeq backfill alone cannot discover missed tombstones.
     while (cursor < end && !removed.current.has(id)) {
-      const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?afterSeq=${cursor}&limit=100`)
+      const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?afterSeq=${cursor}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`)
       merge(id, page.messages)
       const next = page.messages.at(-1)?.seq || cursor
       if (!page.hasMore || next <= cursor) break
