@@ -20,6 +20,9 @@ export function createTestEnvironment(base: Record<string, string | undefined>, 
     PORT: '4190',
     PUBLIC_ORIGIN: 'http://127.0.0.1:4190',
     ALLOWED_ORIGINS: 'http://127.0.0.1:4190',
-    RATE_LIMIT_AUTH_MAX: '100'
+    RATE_LIMIT_AUTH_MAX: '100',
+    // The suite shares one loopback IP; reconnect scenarios exceed the production
+    // per-IP handshake budget when CI finishes within a single rate-limit window.
+    RATE_LIMIT_SOCKET_MAX: '1000'
   }
 }
