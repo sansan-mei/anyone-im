@@ -21,6 +21,10 @@ export function createTestEnvironment(base: Record<string, string | undefined>, 
     PUBLIC_ORIGIN: 'http://127.0.0.1:4190',
     ALLOWED_ORIGINS: 'http://127.0.0.1:4190',
     RATE_LIMIT_AUTH_MAX: '100',
+    // All browser cases share one loopback IP. Multi-page catchup and message
+    // fixture writes exceed 300 HTTP requests/minute; only this isolated test
+    // environment gets a larger allowance. Production rate limits are unchanged.
+    RATE_LIMIT_HTTP_MAX: '3000',
     // The suite shares one loopback IP; reconnect scenarios exceed the production
     // per-IP handshake budget when CI finishes within a single rate-limit window.
     RATE_LIMIT_SOCKET_MAX: '1000'

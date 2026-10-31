@@ -20,6 +20,13 @@ test('isolated E2E reserves enough socket handshakes for the shared loopback tes
   expect(env.DATABASE_URL).toBe('file:/workspace/sandbox/test.db')
 })
 
+test('isolated E2E reserves a shared HTTP budget for multi-page history and reconnect tests', () => {
+  const env = build()({ RATE_LIMIT_HTTP_MAX: '1' }, '/workspace/sandbox')
+  expect(env.RATE_LIMIT_HTTP_MAX).toBe('3000')
+  expect(env.NODE_ENV).toBe('test')
+  expect(env.HOST).toBe('127.0.0.1')
+})
+
 test('MySQL E2E requires explicit opt-in and an isolated loopback test database', () => {
   expect(() => build()({ DB_PROVIDER: 'mysql', DATABASE_URL: 'mysql://test:test@127.0.0.1:3306/anyone_ci' }, '/x')).toThrow()
   expect(() => build()({ DB_PROVIDER: 'mysql', ANYONE_E2E_MYSQL: '1', DATABASE_URL: 'mysql://test:test@not-a-real-host/anyone_ci' }, '/x')).toThrow()

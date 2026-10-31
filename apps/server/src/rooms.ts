@@ -1,4 +1,5 @@
 import type { Message as MessageDTO, RoomSummary, Attachment as AttachmentDTO, SendMessageInput, MessagePage } from '@anyone-im/contracts'
+import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from '@anyone-im/contracts'
 import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
 import { attachmentExpired, ATTACHMENT_TTL_MS } from './attachment-retention'
@@ -68,8 +69,8 @@ export class Rooms {
       if (!Number.isSafeInteger(n) || n < 0) return fail(400, 'INVALID_INPUT', '分页参数无效')
       return n
     }
-    const before = number(query.beforeSeq), after = number(query.afterSeq), limit = number(query.limit, 50)!
-    if ((before !== undefined && after !== undefined) || limit < 1 || limit > 100) return fail(400, 'INVALID_INPUT', '分页参数无效')
+    const before = number(query.beforeSeq), after = number(query.afterSeq), limit = number(query.limit, DEFAULT_MESSAGE_PAGE_SIZE)!
+    if ((before !== undefined && after !== undefined) || limit < 1 || limit > MAX_MESSAGE_PAGE_SIZE) return fail(400, 'INVALID_INPUT', '分页参数无效')
     const forward = after !== undefined
     const results = await this.db.message.findMany({ where: { roomId, ...(before !== undefined ? { seq: { lt: before } } : after !== undefined ? { seq: { gt: after } } : {}) }, orderBy: { seq: forward ? 'asc' : 'desc' }, take: limit + 1, include: messageInclude })
     const messages = results.slice(0, limit)

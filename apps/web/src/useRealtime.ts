@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import type { ClientToServerEvents, MessagePage, Result, ServerToClientEvents } from '@anyone-im/contracts'
 import type { MessageState } from './Chat'
+import { DEFAULT_MESSAGE_PAGE_SIZE } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 export function useRealtime({ active, state, refresh, onMessage, onDeleted, onPresence, onRemoved }: {
@@ -65,7 +66,7 @@ export function useRealtime({ active, state, refresh, onMessage, onDeleted, onPr
         const next = page.messages.at(-1)?.seq ?? cursor
         if (!page.hasMore || next <= cursor) { cursors.current[active] = Math.max(cursors.current[active] ?? 0, next); break }
         cursor = next
-        page = await api<MessagePage>(`/rooms/${encodeURIComponent(active)}/messages?afterSeq=${cursor}&limit=100`)
+        page = await api<MessagePage>(`/rooms/${encodeURIComponent(active)}/messages?afterSeq=${cursor}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`)
       }
     })().catch(e => { if (!cancelled) latest.current.state.setRoomError(active, `同步未完成：${errorText(e)}`) })
     return () => { cancelled = true }

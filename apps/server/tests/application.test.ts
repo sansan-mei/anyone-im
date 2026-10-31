@@ -375,6 +375,79 @@ describe('seven-day attachment retention', () => {
   })
 })
 
+describe('message page budgets', () => {
+  for (const visibility of ['public', 'private'] as const) {
+    test(`${visibility} pages enforce a hard maximum of 20 and preserve validation and ACL`, async () => {
+      const app = await fixture()
+      const owner = agent(app.url), outsider = agent(app.url)
+      await owner.request('/api/auth/guest', { displayName: 'Owner' })
+      await outsider.request('/api/auth/guest', { displayName: 'Outsider' })
+      const room = (await owner.request('/api/rooms', { name: 'Limits', visibility, ...(visibility === 'private' ? { password: 'pagination-room-password' } : {}) })).body.data
+      const { PrismaClient } = await import('../generated/client')
+      const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } } })
+      try {
+        await db.message.createMany({ data: Array.from({ length: 41 }, (_, i) => ({ roomId: room.id, userId: owner.userId, seq: i + 1, clientMessageId: crypto.randomUUID(), text: 'boundary' })) })
+        const path = `/api/rooms/${room.id}/messages`
+        for (const query of ['limit=21', 'limit=50', 'limit=100', 'limit=101', 'limit=0', 'limit=-1', 'limit=1.5', 'limit=NaN', 'limit=Infinity', 'limit=', 'limit=1e1', 'limit=%2020', 'limit=9007199254740992', 'beforeSeq=5&afterSeq=2', 'beforeSeq=-1', 'afterSeq=1.5']) {
+          const denied = await owner.request(`${path}?${query}`)
+          expect(denied.status, query).toBe(400)
+          expect(denied.body.error.code).toBe('INVALID_INPUT')
+        }
+        for (const [query, start, more] of [['limit=20', 22, true], ['beforeSeq=21&limit=20', 1, false], ['afterSeq=21&limit=20', 22, false]] as const) {
+          const result = await owner.request(`${path}?${query}`)
+          expect(result.status).toBe(200)
+          expect(result.body.data.messages.map((m: any) => m.seq)).toEqual(Array.from({ length: 20 }, (_, i) => i + start))
+          expect(result.body.data.hasMore).toBe(more)
+        }
+        expect((await owner.request(`${path}?limit=1`)).body.data.messages).toHaveLength(1)
+        for (const suffix of ['', '?limit=100']) expect((await outsider.request(path + suffix)).status).toBe(403)
+        const socket = await connect(app.url, outsider.cookie)
+        expect((await ack(socket, 'room:subscribe', { roomId: room.id })).error.code).toBe('FORBIDDEN')
+        expect((await ack(socket, 'room:subscribe', { roomId: room.id, afterSeq: -1 })).error.code).toBe('INVALID_INPUT')
+        expect(await db.message.count({ where: { roomId: room.id } })).toBe(41)
+      } finally { await db.$disconnect() }
+    })
+    test(`${visibility} HTTP and socket pages default to 15 without losing history`, async () => {
+      const app = await fixture()
+      const client = agent(app.url)
+      await client.request('/api/auth/guest', { displayName: 'Pagination' })
+      const room = (await client.request('/api/rooms', { name: 'Pages', visibility, ...(visibility === 'private' ? { password: 'pagination-room-password' } : {}) })).body.data
+      const { PrismaClient } = await import('../generated/client')
+      const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } } })
+      try {
+        await db.message.createMany({ data: Array.from({ length: 61 }, (_, i) => ({ roomId: room.id, userId: client.userId, seq: i + 1, clientMessageId: crypto.randomUUID(), text: `message ${i + 1}` })) })
+        await db.room.update({ where: { id: room.id }, data: { lastSeq: 61 } })
+        const path = `/api/rooms/${room.id}/messages`
+        const latest = (await client.request(path)).body.data
+        expect(latest.messages.map((m: any) => m.seq)).toEqual(Array.from({ length: 15 }, (_, i) => i + 47))
+        expect(latest.hasMore).toBe(true)
+        const socket = await connect(app.url, client.cookie)
+        expect((await ack(socket, 'room:subscribe', { roomId: room.id })).data).toEqual(latest)
+        let page = (await ack(socket, 'room:subscribe', { roomId: room.id, afterSeq: 0 })).data
+        const forward: number[] = []
+        do {
+          expect(page.messages.length).toBeLessThanOrEqual(15)
+          forward.push(...page.messages.map((m: any) => m.seq))
+          if (!page.hasMore) break
+          page = (await client.request(`${path}?afterSeq=${forward.at(-1)}`)).body.data
+        } while (true)
+        expect(forward).toEqual(Array.from({ length: 61 }, (_, i) => i + 1))
+        let older = latest
+        const backward = [...latest.messages.map((m: any) => m.seq)]
+        while (older.hasMore) {
+          older = (await client.request(`${path}?beforeSeq=${backward[0]}`)).body.data
+          expect(older.messages.length).toBeLessThanOrEqual(15)
+          backward.unshift(...older.messages.map((m: any) => m.seq))
+        }
+        expect(backward).toEqual(forward)
+        expect((await client.request(`${path}?afterSeq=61`)).body.data).toEqual({ messages: [], hasMore: false })
+        expect((await client.request(`${path}?beforeSeq=1`)).body.data).toEqual({ messages: [], hasMore: false })
+        expect(await db.message.count({ where: { roomId: room.id } })).toBe(61)
+      } finally { await db.$disconnect() }
+    })
+  }
+})
+
 describe('durable messages', () => {
   test('transactional ordering, immutable client-id dedupe, pagination, monotonic cursors and tombstones', async () => {
     const app = await fixture()
@@ -715,12 +788,24 @@ describe('attachment storage boundaries', () => {
       await db.attachment.createMany({ data: more })
       await db.message.createMany({ data: more.map((image, index) => ({ roomId: room.id, userId: alice.userId, clientMessageId: crypto.randomUUID(), seq: index + 2, text: '', attachmentId: image.id })) })
       await db.room.update({ where: { id: room.id }, data: { lastSeq: 100 } })
-      const history = await rooms.page(room.id, alice.userId, { limit: 100 })
-      const backfill = await rooms.page(room.id, alice.userId, { afterSeq: 0, limit: 100 })
-      expect(history.messages).toHaveLength(100)
-      expect(backfill.messages).toEqual(history.messages)
+      let historyPage = await rooms.page(room.id, alice.userId, { limit: 20 })
+      const history = [...historyPage.messages]
+      while (historyPage.hasMore) {
+        historyPage = await rooms.page(room.id, alice.userId, { beforeSeq: history[0]!.seq, limit: 20 })
+        expect(historyPage.messages.length).toBeLessThanOrEqual(20)
+        history.unshift(...historyPage.messages)
+      }
+      let backfillPage = await rooms.page(room.id, alice.userId, { afterSeq: 0, limit: 20 })
+      const backfill = [...backfillPage.messages]
+      while (backfillPage.hasMore) {
+        backfillPage = await rooms.page(room.id, alice.userId, { afterSeq: backfill.at(-1)!.seq, limit: 20 })
+        expect(backfillPage.messages.length).toBeLessThanOrEqual(20)
+        backfill.push(...backfillPage.messages)
+      }
+      expect(history).toHaveLength(100)
+      expect(backfill).toEqual(history)
       expect((await rooms.summary(room.id, alice.userId)).lastMessage?.attachment?.id).toBe(more.at(-1)!.id)
-      for (const message of history.messages) expect(Object.keys(message.attachment!).sort()).toEqual(['expired', 'expiresAt', 'filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
+      for (const message of history) expect(Object.keys(message.attachment!).sort()).toEqual(['expired', 'expiresAt', 'filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
       noBlobReads()
       const downloaded = await attachments.download(attachment.id, bob.userId)
       expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(png)
