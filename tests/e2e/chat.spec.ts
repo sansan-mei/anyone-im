@@ -22,7 +22,7 @@ async function guest(context: BrowserContext, name: string) {
   return post<{ user: { id: string; displayName: string } }>(context.request, '/api/auth/guest', { displayName: name })
 }
 async function room(context: BrowserContext) {
-  return post<{ id: string; name: string }>(context.request, '/api/rooms', { name: unique('设计讨论'), description: '真实端到端测试房间', visibility: 'private' })
+  return post<{ id: string; name: string }>(context.request, '/api/rooms', { name: unique('设计讨论'), description: '真实端到端测试房间', visibility: 'private', password: 'fixture-private-secret' })
 }
 async function openRoom(page: Page, roomId: string) {
   await page.goto(base)

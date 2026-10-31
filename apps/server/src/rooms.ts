@@ -1,14 +1,15 @@
 import type { Message as MessageDTO, RoomSummary, Attachment as AttachmentDTO, SendMessageInput, MessagePage } from '@anyone-im/contracts'
 import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
+import { attachmentExpired, ATTACHMENT_TTL_MS } from './attachment-retention'
 
 type Database = Prisma.TransactionClient
 // Never load image bytes for history, summaries, backfill or send acknowledgements.
-export const attachmentMetadataSelect = { id: true, roomId: true, filename: true, mimeType: true, size: true } as const
+export const attachmentMetadataSelect = { id: true, roomId: true, filename: true, mimeType: true, size: true, createdAt: true, expiredAt: true } as const
 export const messageInclude = { sender: true, attachment: { select: attachmentMetadataSelect } } as const
 type StoredMessage = Prisma.MessageGetPayload<{ include: typeof messageInclude }>
-export function attachmentDto(a: { id: string; roomId: string; filename: string; mimeType: string; size: number }): AttachmentDTO {
-  return { id: a.id, roomId: a.roomId, filename: a.filename, mimeType: a.mimeType, size: a.size, url: `/api/attachments/${a.id}` }
+export function attachmentDto(a: { id: string; roomId: string; filename: string; mimeType: string; size: number; createdAt: Date; expiredAt: Date | null }): AttachmentDTO {
+  return { id: a.id, roomId: a.roomId, filename: a.filename, mimeType: a.mimeType, size: a.size, url: `/api/attachments/${a.id}`, expiresAt: new Date(a.createdAt.getTime() + ATTACHMENT_TTL_MS).toISOString(), expired: attachmentExpired(a) }
 }
 export function messageDto(m: StoredMessage): MessageDTO {
   return { id: m.id, roomId: m.roomId, seq: m.seq, clientMessageId: m.clientMessageId, text: m.deletedAt ? '' : m.text, attachment: !m.deletedAt && m.attachment ? attachmentDto(m.attachment) : null, sender: userDto(m.sender), createdAt: m.createdAt.toISOString(), deletedAt: m.deletedAt?.toISOString() ?? null }
@@ -28,17 +29,19 @@ export class Rooms {
     if (!m && room.visibility !== 'public') return fail(403, 'FORBIDDEN', '无权访问此聊天室')
     return { id: room.id, name: room.name, description: room.description, visibility: room.visibility as 'private' | 'public', role: m?.role === 'owner' ? 'owner' : 'member', memberCount: room.memberships.length, onlineCount: this.online(roomId), lastSeq: room.lastSeq, lastReadSeq: m?.lastReadSeq ?? 0, lastMessage: m && room.messages[0] ? messageDto(room.messages[0]) : null, updatedAt: room.updatedAt.toISOString() }
   }
-  async create(userId: string, input: { name: string; description: string; visibility: string }) {
+  async create(userId: string, input: { name: string; description: string; visibility: string; passwordHash?: string }) {
     const room = await this.db.room.create({ data: { ...input, memberships: { create: { userId, role: 'owner' } } } })
     return this.summary(room.id, userId)
   }
-  async join(roomId: string, userId: string, inviteCode?: string) {
+  async join(roomId: string, userId: string, inviteCode?: string, verifiedPasswordHash?: string) {
     await this.db.$transaction(async tx => {
       const room = await tx.room.findUnique({ where: { id: roomId } })
-      if (!room || (!inviteCode && room.visibility !== 'public')) return fail(404, 'NOT_FOUND', '聊天室不存在')
+      // Recheck the exact hash verified outside the write gate. A concurrent
+      // password rotation must not authorize entry with the previous password.
+      if (!room || (!inviteCode && room.visibility !== 'public' && (!verifiedPasswordHash || room.passwordHash !== verifiedPasswordHash))) return fail(404, 'NOT_FOUND', '聊天室不存在')
       // A write lock serializes joins and room ACL mutations on MySQL.
       await tx.room.update({ where: { id: roomId }, data: { updatedAt: room.updatedAt } })
-      if (inviteCode) await this.invite(inviteCode, tx)
+      if (inviteCode && (await this.invite(inviteCode, tx)).roomId !== roomId) return fail(404, 'NOT_FOUND', '聊天室不存在')
       const previous = await tx.membership.findUnique({ where: { roomId_userId: { roomId, userId } } })
       if (previous?.banned) return fail(403, 'BANNED', '已被移出此聊天室')
       await tx.membership.upsert({ where: { roomId_userId: { roomId, userId } }, create: { roomId, userId }, update: { active: true } })
@@ -87,8 +90,9 @@ export class Rooms {
         return { message: messageDto(previous), created: false }
       }
       if (input.attachmentId) {
-        const attachment = await tx.attachment.findUnique({ where: { id: input.attachmentId }, select: { roomId: true, userId: true, message: { select: { id: true } } } })
+        const attachment = await tx.attachment.findUnique({ where: { id: input.attachmentId }, select: { roomId: true, userId: true, createdAt: true, expiredAt: true, message: { select: { id: true } } } })
         if (!attachment || attachment.roomId !== roomId || attachment.userId !== userId || attachment.message) return fail(403, 'INVALID_ATTACHMENT', '附件不可用')
+        if (attachmentExpired(attachment)) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
       }
       const updated = await tx.room.update({ where: { id: roomId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date() } })
       const message = await tx.message.create({ data: { roomId, userId, seq: updated.lastSeq, clientMessageId: input.clientMessageId, text: input.text, attachmentId: input.attachmentId }, include: messageInclude })

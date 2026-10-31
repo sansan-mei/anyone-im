@@ -146,7 +146,7 @@ describe('captured identity preconditions', () => {
     await bob.request('/api/auth/guest', { displayName: 'Bob' })
     const routes: Array<[string, string, unknown]> = [
       ['/api/me', 'PATCH', { displayName: 'Must not change' }],
-      ['/api/rooms', 'POST', { name: 'Must not create' }],
+      ['/api/rooms', 'POST', { name: 'Must not create', password: 'fixture-private-secret' }],
       ['/api/rooms/lobby/join', 'POST', {}],
       ['/api/rooms/lobby/leave', 'POST', {}],
       ['/api/rooms/lobby/messages', 'POST', { clientMessageId: crypto.randomUUID(), text: 'Must not send' }],
@@ -220,6 +220,56 @@ describe('password-first private rooms', () => {
   })
 })
 
+describe('password room entry and migration', () => {
+  test('password entry is opaque, owner-rotatable, invite-optional and never bypasses bans', async () => {
+    const app = await fixture({ rateLimits: { JOIN: 100 } })
+    const owner = agent(app.url), bob = agent(app.url), eve = agent(app.url)
+    for (const [client, displayName] of [[owner, 'Owner'], [bob, 'Bob'], [eve, 'Eve']] as const) await client.request('/api/auth/guest', { displayName })
+    const created = await owner.request('/api/rooms', { name: 'Password room', password: 'first secret' })
+    expect(created.status).toBe(200)
+    const id = created.body.data.id, path = `/api/rooms/${id}`
+    const absent = await bob.request(`${path}/join`, {})
+    const wrong = await bob.request(`${path}/join`, { password: 'wrong secret' })
+    const unknown = await bob.request('/api/rooms/unknown/join', { password: 'wrong secret' })
+    expect(absent.status).toBe(404)
+    expect(wrong.body).toEqual(absent.body)
+    expect(unknown.body).toEqual(absent.body)
+    expect((await bob.request(`${path}/join`, { password: 'x'.repeat(129) })).status).toBe(400)
+    expect((await bob.request(`${path}/join`, { password: 'first secret' })).status).toBe(200)
+    expect((await bob.request(`${path}/password`, { password: 'second secret' }, 'PATCH')).status).toBe(403)
+    expect((await owner.request(`${path}/password`, { password: 'second secret' }, 'PATCH')).status).toBe(200)
+    expect((await eve.request(`${path}/join`, { password: 'first secret' })).status).toBe(404)
+    expect((await eve.request(`${path}/join`, { password: 'second secret' })).status).toBe(200)
+    const invite = (await owner.request(`${path}/invites`, {})).body.data
+    await bob.request(`${path}/leave`, {})
+    expect((await bob.request(`/api/invites/${invite.code}`, {})).status).toBe(200)
+    await owner.request(`${path}/members/${bob.userId}`, undefined, 'DELETE')
+    expect((await bob.request(`${path}/join`, { password: 'second secret' })).status).toBe(403)
+    expect((await bob.request(`/api/invites/${invite.code}`, {})).status).toBe(403)
+    const { PrismaClient } = await import('../generated/client')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } } })
+    try {
+      const legacy = await db.room.create({ data: { name: 'Legacy', memberships: { create: { userId: owner.userId, role: 'owner' } } } })
+      expect((await eve.request(`/api/rooms/${legacy.id}/join`, { password: 'second secret' })).status).toBe(404)
+      const legacyInvite = (await owner.request(`/api/rooms/${legacy.id}/invites`, {})).body.data
+      expect((await eve.request(`/api/invites/${legacyInvite.code}`, {})).status).toBe(200)
+      expect((await owner.request(`/api/rooms/${legacy.id}/password`, { password: 'migrated secret' }, 'PATCH')).status).toBe(200)
+      expect((await bob.request(`/api/rooms/${legacy.id}/join`, { password: 'migrated secret' })).status).toBe(200)
+    } finally { await db.$disconnect() }
+  })
+  test('failed password attempts share JOIN quota and never create membership', async () => {
+    const app = await fixture({ rateLimits: { JOIN: 2 } })
+    const owner = agent(app.url), bob = agent(app.url)
+    await owner.request('/api/auth/guest', { displayName: 'Owner' })
+    await bob.request('/api/auth/guest', { displayName: 'Bob' })
+    const created = await owner.request('/api/rooms', { name: 'Limited', password: 'private secret' })
+    const path = `/api/rooms/${created.body.data.id}/join`
+    for (let i = 0; i < 2; i++) expect((await bob.request(path, { password: 'wrong secret' })).status).toBe(404)
+    expect((await bob.request(path, { password: 'private secret' })).status).toBe(429)
+    expect((await bob.request('/api/rooms')).body.data.rooms.map((r: any) => r.id)).not.toContain(created.body.data.id)
+  })
+})
+
 describe('room access control', () => {
   test('private membership, invite revocation and durable kicks prevent rejoin and metadata leakage', async () => {
     const app = await fixture()
@@ -227,7 +277,7 @@ describe('room access control', () => {
     const a = (await owner.request('/api/auth/guest', { displayName: 'Owner' })).body.data.user
     const b = (await bob.request('/api/auth/guest', { displayName: 'Bob' })).body.data.user
     await outsider.request('/api/auth/guest', { displayName: 'Outsider' })
-    const room = await owner.request('/api/rooms', { name: 'Secret', visibility: 'private', description: 'Hidden' })
+    const room = await owner.request('/api/rooms', { name: 'Secret', visibility: 'private', password: 'fixture-private-secret', description: 'Hidden' })
     expect(room.status).toBe(200)
     const id = room.body.data.id
     expect(room.body.data).toMatchObject({ name: 'Secret', role: 'owner', memberCount: 1, lastSeq: 0, lastReadSeq: 0, lastMessage: null })
@@ -273,6 +323,55 @@ describe('room access control', () => {
     expect((await bob.request(`/api/rooms/${room.id}/leave`, {})).status).toBe(200)
     expect((await bob.request(`/api/rooms/${room.id}/members`)).status).toBe(403)
     expect((await bob.request(`/api/rooms/${room.id}/join`, {})).status).toBe(200)
+  })
+})
+
+describe('seven-day attachment retention', () => {
+  test('expiry denies bytes before cleanup, erases only expired binaries and preserves chat/idempotency', async () => {
+    const app = await fixture({ attachmentCleanup: false })
+    const owner = agent(app.url), outsider = agent(app.url)
+    await owner.request('/api/auth/guest', { displayName: 'Retention owner' })
+    await outsider.request('/api/auth/guest', { displayName: 'Outsider' })
+    const room = (await owner.request('/api/rooms', { name: 'Images', visibility: 'public' })).body.data
+    const { PrismaClient } = await import('../generated/client')
+    const { Attachments } = await import('../src/attachments')
+    const { Rooms } = await import('../src/rooms')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } }, log: [{ emit: 'event', level: 'query' }] })
+    const selects: string[] = []
+    db.$on('query', event => { if (/^SELECT\b/i.test(event.query)) selects.push(event.query) })
+    try {
+      const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+      const base = { roomId: room.id, userId: owner.userId, filename: 'image.png', mimeType: 'image/png', size: bytes.length, bytes }
+      const linked = await db.attachment.create({ data: base })
+      const input = { clientMessageId: crypto.randomUUID(), text: '图片说明需要保留', attachmentId: linked.id }
+      const sent = await owner.request(`/api/rooms/${room.id}/messages`, input)
+      expect(sent.status).toBe(200)
+      const old = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 - 1000)
+      await db.attachment.update({ where: { id: linked.id }, data: { createdAt: old } })
+      const orphan = await db.attachment.create({ data: { ...base, createdAt: old } })
+      const fresh = await db.attachment.create({ data: base })
+      expect((await owner.request(`/api/attachments/${linked.id}`)).status).toBe(410)
+      expect((await outsider.request(`/api/attachments/${linked.id}`)).status).toBe(403)
+      expect((await owner.request(`/api/rooms/${room.id}/messages`, { clientMessageId: crypto.randomUUID(), text: '', attachmentId: orphan.id })).status).toBe(410)
+      const attachmentService = new Attachments(new Rooms(db))
+      selects.length = 0
+      await expect(attachmentService.download(linked.id, owner.userId)).rejects.toMatchObject({ status: 410 })
+      expect(selects.some(query => /["`]bytes["`]/i.test(query))).toBe(false)
+      expect(await app.cleanupExpiredAttachments()).toBe(2)
+      for (const id of [linked.id, orphan.id]) {
+        const stored = await db.attachment.findUniqueOrThrow({ where: { id } })
+        expect(stored.bytes.byteLength).toBe(0)
+        expect(stored.expiredAt).toBeInstanceOf(Date)
+      }
+      expect((await db.attachment.findUniqueOrThrow({ where: { id: fresh.id } })).bytes.byteLength).toBe(8)
+      expect(await app.cleanupExpiredAttachments()).toBe(0)
+      const retry = await owner.request(`/api/rooms/${room.id}/messages`, input)
+      expect(retry.status).toBe(200)
+      expect(retry.body.data).toMatchObject({ id: sent.body.data.id, text: input.text, seq: 1, attachment: { id: linked.id, expired: true } })
+      expect((await owner.request(`/api/rooms/${room.id}/messages`)).body.data.messages).toHaveLength(1)
+      expect(await db.message.count({ where: { roomId: room.id } })).toBe(1)
+      expect((await owner.request(`/api/attachments/${linked.id}`)).status).toBe(410)
+    } finally { await db.$disconnect() }
   })
 })
 
@@ -339,7 +438,7 @@ describe('real Socket.IO transport', () => {
     await alice.request('/api/auth/guest', { displayName: 'Alice' })
     const b = (await bob.request('/api/auth/guest', { displayName: 'Bob' })).body.data.user
     await eve.request('/api/auth/guest', { displayName: 'Eve' })
-    const room = (await alice.request('/api/rooms', { name: 'Realtime', visibility: 'private' })).body.data
+    const room = (await alice.request('/api/rooms', { name: 'Realtime', visibility: 'private', password: 'fixture-private-secret' })).body.data
     const invite = (await alice.request(`/api/rooms/${room.id}/invites`, {})).body.data
     await bob.request(`/api/invites/${invite.code}`, {})
     const aSocket = await connect(app.url, alice.cookie)
@@ -497,6 +596,64 @@ describe('streamed body isolation', () => {
   }
 })
 
+describe('seven-day image resources', () => {
+  test('the upload clock expires bytes at the exact boundary while history and retry identity survive cleanup', async () => {
+    let now = Date.now()
+    const app = await fixture({ attachmentRetention: { now: () => now, intervalMs: 60000 } } as any)
+    const alice = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Expiry owner' })
+    const { PrismaClient } = await import('../generated/client')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } }, log: [{ emit: 'event', level: 'query' }] })
+    const queries: string[] = []
+    db.$on('query', event => { if (/^SELECT\b/i.test(event.query)) queries.push(event.query) })
+    try {
+      const upload = async () => {
+        const form = new FormData()
+        form.set('file', new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'expires.png', { type: 'image/png' }))
+        const response = await fetch(`${app.url}/api/rooms/lobby/attachments`, { method: 'POST', headers: { cookie: alice.cookie, [EXPECTED_USER_HEADER]: alice.userId }, body: form })
+        expect(response.status).toBe(200)
+        return (await response.json()).data
+      }
+      const linked = await upload(), orphan = await upload(), deleted = await upload()
+      const input = { clientMessageId: crypto.randomUUID(), text: 'Keep this caption', attachmentId: linked.id }
+      const sent = (await alice.request('/api/rooms/lobby/messages', input)).body.data
+      const deletedMessage = (await alice.request('/api/rooms/lobby/messages', { clientMessageId: crypto.randomUUID(), text: '', attachmentId: deleted.id })).body.data
+      await alice.request(`/api/messages/${deletedMessage.id}`, undefined, 'DELETE')
+      expect(linked.expiresAt).toBe(new Date(now + 7 * 86400000).toISOString())
+      now += 7 * 86400000 - 1
+      expect((await fetch(`${app.url}${linked.url}`, { headers: { cookie: alice.cookie } })).status).toBe(200)
+      now++
+      const expired = await fetch(`${app.url}${linked.url}`, { headers: { cookie: alice.cookie } })
+      expect(expired.status).toBe(410)
+      expect(expired.headers.get('cache-control')).toContain('no-store')
+      expect((await alice.request('/api/rooms/lobby/messages', { clientMessageId: crypto.randomUUID(), text: '', attachmentId: orphan.id })).status).toBe(403)
+      const retry = await alice.request('/api/rooms/lobby/messages', input)
+      expect(retry.body.data).toMatchObject({ id: sent.id, seq: sent.seq, text: input.text, attachment: { expired: true } })
+      expect((await alice.request('/api/rooms/lobby/messages', { ...input, text: 'Replacement' })).status).toBe(409)
+      const { Rooms } = await import('../src/rooms')
+      const { Attachments } = await import('../src/attachments')
+      const rooms = new (Rooms as any)(db, () => now)
+      const attachments = new Attachments(rooms)
+      queries.length = 0
+      await expect(attachments.download(linked.id, alice.userId)).rejects.toMatchObject({ status: 410 })
+      expect(queries.some(q => /["`]bytes["`]/i.test(q))).toBe(false)
+      queries.length = 0
+      expect(await (attachments as any).cleanupExpired(2)).toBe(2)
+      expect(queries.some(q => /["`]bytes["`]/i.test(q))).toBe(false)
+      expect(await (attachments as any).cleanupExpired(2)).toBe(1)
+      expect(await (attachments as any).cleanupExpired(2)).toBe(0)
+      const rows = await db.attachment.findMany({ where: { id: { in: [linked.id, orphan.id, deleted.id] } } })
+      expect(rows).toHaveLength(3)
+      for (const row of rows) expect(row.bytes.byteLength).toBe(0)
+      const page = await alice.request('/api/rooms/lobby/messages')
+      expect(page.body.data.messages.find((m: any) => m.id === sent.id)).toMatchObject({ id: sent.id, seq: sent.seq, text: input.text, attachment: { id: linked.id, expired: true } })
+      expect((await alice.request('/api/rooms/lobby/messages', input)).body.data.id).toBe(sent.id)
+      now++
+      expect((await fetch(`${app.url}${linked.url}`, { headers: { cookie: alice.cookie } })).status).toBe(410)
+    } finally { await db.$disconnect() }
+  })
+})
+
 describe('database-only attachment persistence', () => {
   test('an authorized image survives replacement of the application filesystem', async () => {
     const app = await fixture()
@@ -525,7 +682,7 @@ describe('attachment storage boundaries', () => {
     const alice = agent(app.url), bob = agent(app.url)
     await alice.request('/api/auth/guest', { displayName: 'Alice' })
     await bob.request('/api/auth/guest', { displayName: 'Bob' })
-    const room = (await alice.request('/api/rooms', { name: 'Blob projections', visibility: 'private' })).body.data
+    const room = (await alice.request('/api/rooms', { name: 'Blob projections', visibility: 'private', password: 'fixture-private-secret' })).body.data
     const { PrismaClient } = await import('../generated/client')
     const { Rooms } = await import('../src/rooms')
     const { Attachments } = await import('../src/attachments')
@@ -542,7 +699,7 @@ describe('attachment storage boundaries', () => {
     try {
       const session = await db.session.findFirstOrThrow({ where: { userId: alice.userId } })
       const attachment = await attachments.commit({ data: png, filename: 'projection.png', mimeType: 'image/png' }, room.id, alice.userId)
-      expect(Object.keys(attachment).sort()).toEqual(['filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
+      expect(Object.keys(attachment).sort()).toEqual(['expired', 'expiresAt', 'filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
       noBlobReads()
       await expect(attachments.download(attachment.id, bob.userId)).rejects.toMatchObject({ status: 403 })
       noBlobReads()
@@ -563,7 +720,7 @@ describe('attachment storage boundaries', () => {
       expect(history.messages).toHaveLength(100)
       expect(backfill.messages).toEqual(history.messages)
       expect((await rooms.summary(room.id, alice.userId)).lastMessage?.attachment?.id).toBe(more.at(-1)!.id)
-      for (const message of history.messages) expect(Object.keys(message.attachment!).sort()).toEqual(['filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
+      for (const message of history.messages) expect(Object.keys(message.attachment!).sort()).toEqual(['expired', 'expiresAt', 'filename', 'id', 'mimeType', 'roomId', 'size', 'url'])
       noBlobReads()
       const downloaded = await attachments.download(attachment.id, bob.userId)
       expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(png)
@@ -600,7 +757,7 @@ describe('authorized attachments', () => {
     await alice.request('/api/auth/guest', { displayName: 'Alice' })
     await bob.request('/api/auth/guest', { displayName: 'Bob' })
     await eve.request('/api/auth/guest', { displayName: 'Eve' })
-    const room = (await alice.request('/api/rooms', { name: 'Photos', visibility: 'private' })).body.data
+    const room = (await alice.request('/api/rooms', { name: 'Photos', visibility: 'private', password: 'fixture-private-secret' })).body.data
     const invite = (await alice.request(`/api/rooms/${room.id}/invites`, {})).body.data
     await bob.request(`/api/invites/${invite.code}`, {})
     const upload = async (cookie: string, bytes: Uint8Array, type = 'image/png', name = 'photo.png') => {
@@ -634,7 +791,7 @@ describe('authorized attachments', () => {
     expect((await fetch(`${app.url}${attachment.url}`)).status).toBe(401)
     expect((await fetch(`${app.url}${attachment.url}`, { headers: { cookie: eve.cookie } })).status).toBe(403)
     expect((await bob.request(`/api/rooms/${room.id}/messages`, { clientMessageId: crypto.randomUUID(), text: '', attachmentId: attachment.id })).status).toBe(403)
-    const other = (await alice.request('/api/rooms', { name: 'Other' })).body.data
+    const other = (await alice.request('/api/rooms', { name: 'Other', password: 'fixture-private-secret' })).body.data
     expect((await alice.request(`/api/rooms/${other.id}/messages`, { clientMessageId: crypto.randomUUID(), text: '', attachmentId: attachment.id })).status).toBe(403)
     const message = (await alice.request(`/api/rooms/${room.id}/messages`, { clientMessageId: crypto.randomUUID(), text: '', attachmentId: attachment.id })).body.data
     expect(message.attachment.id).toBe(attachment.id)

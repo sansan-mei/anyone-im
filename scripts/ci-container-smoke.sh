@@ -76,7 +76,7 @@ docker exec "$app_id" bun -e '
   const cookie=cookieHeader.split(";")[0];
   const headers={Origin:origin,Cookie:cookie,"X-Anyone-User-Id":user.id};
   const json=async(path,body)=>{const r=await fetch(base+path,{method:"POST",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify(body)});assert(r.ok,"POST failed: "+path+" "+r.status);return(await r.json()).data};
-  const room=await json("/api/rooms",{name:"Container runtime",description:"CI only",visibility:"private"});
+  const room=await json("/api/rooms",{name:"Container runtime",description:"CI only",visibility:"private",password:"container-fixture-password"});
   const {MAX_ATTACHMENT_BYTES}=await import("./packages/contracts/src/index.ts");
   assert(MAX_ATTACHMENT_BYTES===10*1024*1024,"Image limit must be 10 MiB");
   const png=Buffer.alloc(MAX_ATTACHMENT_BYTES);

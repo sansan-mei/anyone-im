@@ -32,6 +32,7 @@ model Room {
   name String
   description String @default("")
   visibility String @default("private")
+  passwordHash String?
   lastSeq Int @default(0)
   updatedAt DateTime @default(now())
   memberships Membership[]
@@ -84,8 +85,10 @@ model Attachment {
   size Int
   bytes Bytes
   createdAt DateTime @default(now())
+  expiredAt DateTime?
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   uploader User @relation(fields: [userId], references: [id])
   message Message?
   @@index([roomId])
+  @@index([expiredAt, createdAt])
 }

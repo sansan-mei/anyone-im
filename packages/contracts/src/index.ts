@@ -7,7 +7,10 @@ export const guestSchema = z.object({ displayName: displayNameSchema }).strict()
 export const registerSchema = z.object({ username: usernameSchema, password: z.string().min(12).max(128), displayName: displayNameSchema }).strict()
 export const loginSchema = z.object({ username: usernameSchema, password: z.string().min(1).max(128) }).strict()
 export const updateProfileSchema = z.object({ displayName: displayNameSchema }).strict()
-export const createRoomSchema = z.object({ name: z.string().trim().min(1).max(64), description: z.string().trim().max(240).default(''), visibility: z.enum(['public', 'private']).default('private') }).strict()
+export const roomPasswordSchema = z.string().min(6).max(128)
+export const joinRoomSchema = z.object({ password: z.string().max(128).optional() }).strict()
+export const updateRoomPasswordSchema = z.object({ password: roomPasswordSchema }).strict()
+export const createRoomSchema = z.object({ name: z.string().trim().min(1).max(64), description: z.string().trim().max(240).default(''), visibility: z.enum(['public', 'private']).default('private'), password: roomPasswordSchema.optional() }).strict().refine(v => v.visibility === 'public' || v.password !== undefined, { message: '私密房间需要 6–128 位密码' })
 const messageFields = { clientMessageId: z.uuid(), text: z.string().trim().max(4000).default(''), attachmentId: z.uuid().optional() }
 export const sendMessageSchema = z.object(messageFields).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
 export const socketSendMessageSchema = z.object({ ...messageFields, roomId: z.string().min(1).max(64) }).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
@@ -21,7 +24,7 @@ export type ApiError = { code: string; message: string }
 export type Result<T> = { data: T } | { error: ApiError }
 export interface User { id: string; displayName: string; username: string | null; isGuest: boolean }
 export interface SessionData { user: User | null }
-export interface Attachment { id: string; roomId: string; filename: string; mimeType: string; size: number; url: string }
+export interface Attachment { id: string; roomId: string; filename: string; mimeType: string; size: number; url: string; expiresAt?: string; expired?: boolean }
 export interface Message {
   id: string
   roomId: string
@@ -52,7 +55,7 @@ export interface MessagePage { messages: Message[]; hasMore: boolean }
 export interface Invite { code: string; urlPath: string; expiresAt: string }
 export interface InvitePreview { roomId: string; roomName: string; expiresAt: string }
 export interface SendMessageInput { clientMessageId: string; text: string; attachmentId?: string }
-export interface CreateRoomInput { name: string; description: string; visibility: 'public' | 'private' }
+export interface CreateRoomInput { name: string; description: string; visibility: 'public' | 'private'; password?: string }
 export interface ServerToClientEvents {
   'message:new': (message: Message) => void
   'message:deleted': (event: { roomId: string; messageId: string; seq: number }) => void

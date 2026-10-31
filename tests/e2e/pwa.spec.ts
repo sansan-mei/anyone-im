@@ -123,7 +123,7 @@ test('install prompt received before login is retained until explicit install ac
 test('notification navigation selects a current member room without trusting stale identities', async ({ page, context }) => {
   const response = await context.request.post('/api/auth/guest', { headers: { Origin: 'http://127.0.0.1:4190' }, data: { displayName: '通知导航' } })
   const userId = (await response.json()).data.user.id
-  const created = await context.request.post('/api/rooms', { headers: { Origin: 'http://127.0.0.1:4190', 'X-Anyone-User-Id': userId }, data: { name: '通知目标房间', description: '', visibility: 'private' } })
+  const created = await context.request.post('/api/rooms', { headers: { Origin: 'http://127.0.0.1:4190', 'X-Anyone-User-Id': userId }, data: { name: '通知目标房间', description: '', visibility: 'private', password: 'fixture-private-secret' } })
   const roomId = (await created.json()).data.id
   await page.goto(`/?room=${roomId}`)
   await expect(page.getByRole('heading', { name: '通知目标房间', exact: true })).toBeVisible()
@@ -141,7 +141,7 @@ for (const modal of ['create', 'discover', 'invite', 'profile', 'details'] as co
   test(`notification navigation dismisses ${modal} without losing create drafts or trusting invalid events`, async ({ page, context, browser }) => {
     const origin = { Origin: 'http://127.0.0.1:4190' }
     const me = (await (await context.request.post('/api/auth/guest', { headers: origin, data: { displayName: '弹窗导航接收者' } })).json()).data.user.id
-    const created = await context.request.post('/api/rooms', { headers: { ...origin, 'X-Anyone-User-Id': me }, data: { name: `通知目标-${modal}`, description: '', visibility: 'private' } })
+    const created = await context.request.post('/api/rooms', { headers: { ...origin, 'X-Anyone-User-Id': me }, data: { name: `通知目标-${modal}`, description: '', visibility: 'private', password: 'fixture-private-secret' } })
     const roomId = (await created.json()).data.id
     const peer = await browser.newContext()
     let path = '/?keep=safe#anchor'
@@ -149,7 +149,7 @@ for (const modal of ['create', 'discover', 'invite', 'profile', 'details'] as co
       if (modal === 'invite') {
         const owner = (await (await peer.request.post('/api/auth/guest', { headers: origin, data: { displayName: '邀请房主' } })).json()).data.user.id
         const headers = { ...origin, 'X-Anyone-User-Id': owner }
-        const invitationRoom = (await (await peer.request.post('/api/rooms', { headers, data: { name: '尚未接受的受邀房间', description: '', visibility: 'private' } })).json()).data.id
+        const invitationRoom = (await (await peer.request.post('/api/rooms', { headers, data: { name: '尚未接受的受邀房间', description: '', visibility: 'private', password: 'fixture-private-secret' } })).json()).data.id
         const code = (await (await peer.request.post(`/api/rooms/${invitationRoom}/invites`, { headers, data: {} })).json()).data.code
         path = `/invite/${code}?keep=safe#anchor`
       }
@@ -249,7 +249,7 @@ test('obsolete reconnect snapshot cannot swallow a delayed live notification fro
     const me = (await (await context.request.post('/api/auth/guest', { headers: origin, data: { displayName: '重叠重连接收者' } })).json()).data.user.id
     const sender = (await (await peer.request.post('/api/auth/guest', { headers: origin, data: { displayName: '重叠重连发送者' } })).json()).data.user.id
     const headers = { ...origin, 'X-Anyone-User-Id': me }
-    const roomId = (await (await context.request.post('/api/rooms', { headers, data: { name: '重叠重连隔离房间', description: '', visibility: 'private' } })).json()).data.id
+    const roomId = (await (await context.request.post('/api/rooms', { headers, data: { name: '重叠重连隔离房间', description: '', visibility: 'private', password: 'fixture-private-secret' } })).json()).data.id
     const code = (await (await context.request.post(`/api/rooms/${roomId}/invites`, { headers, data: {} })).json()).data.code
     expect((await peer.request.post(`/api/invites/${code}`, { headers: { ...origin, 'X-Anyone-User-Id': sender }, data: {} })).ok()).toBe(true)
     await page.addInitScript(() => {

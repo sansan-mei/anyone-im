@@ -2,6 +2,7 @@ import { basename } from 'node:path'
 import { MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms, attachmentDto, attachmentMetadataSelect } from './rooms'
 import { fail, readLimited } from './security'
+import { attachmentExpired } from './attachment-retention'
 
 export class Attachments {
   constructor(readonly rooms: Rooms) {}
@@ -47,6 +48,7 @@ export class Attachments {
     await this.rooms.member(attachment.roomId, userId)
     if (attachment.message?.deletedAt) return fail(404, 'NOT_FOUND', '附件不可用')
     if (!attachment.message && attachment.userId !== userId) return fail(403, 'FORBIDDEN', '附件尚未发布')
+    if (attachmentExpired(attachment)) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
     const content = await this.rooms.db.attachment.findUnique({ where: { id }, select: { bytes: true } })
     if (!content) return fail(404, 'NOT_FOUND', '附件不存在')
     return new Response(new Uint8Array(content.bytes), { headers: { 'Content-Type': attachment.mimeType, 'Content-Length': String(attachment.size), 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, no-store', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}` } })
