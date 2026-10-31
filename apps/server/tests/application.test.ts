@@ -194,6 +194,32 @@ describe('captured identity preconditions', () => {
   })
 })
 
+describe('password-first private rooms', () => {
+  test('new default-private rooms require an explicit bounded password, without an automatic invite', async () => {
+    const app = await fixture()
+    const owner = agent(app.url)
+    await owner.request('/api/auth/guest', { displayName: 'Owner' })
+    for (const password of [undefined, '', 'short', 'x'.repeat(129)]) {
+      expect((await owner.request('/api/rooms', { name: 'Private', ...(password === undefined ? {} : { password }) })).status).toBe(400)
+    }
+    const created = await owner.request('/api/rooms', { name: 'Private', password: 'private secret' })
+    expect(created.status).toBe(200)
+    expect(created.body.data.visibility).toBe('private')
+    expect(JSON.stringify(created.body)).not.toContain('private secret')
+    expect(JSON.stringify(created.body)).not.toContain('passwordHash')
+    const { PrismaClient } = await import('../generated/client')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } } })
+    try {
+      const stored = await db.room.findUniqueOrThrow({ where: { id: created.body.data.id } })
+      const hash = (stored as any).passwordHash
+      expect(hash).toStartWith('$argon2id$')
+      expect(await Bun.password.verify('private secret', hash)).toBe(true)
+      expect(await db.invite.count({ where: { roomId: stored.id } })).toBe(0)
+    } finally { await db.$disconnect() }
+    expect((await owner.request('/api/rooms', { name: 'Public', visibility: 'public' })).status).toBe(200)
+  })
+})
+
 describe('room access control', () => {
   test('private membership, invite revocation and durable kicks prevent rejoin and metadata leakage', async () => {
     const app = await fixture()
