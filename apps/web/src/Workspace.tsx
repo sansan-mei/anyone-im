@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { User, RoomSummary } from '@anyone-im/contracts'
-import { Hash, LockKeyhole, MessageSquare, Plus, Search, Settings2, Ellipsis, ArrowLeft, Compass } from 'lucide-react'
+import { LayoutGroup, motion } from 'motion/react'
+import { X, ArrowUpRight, Hash, LockKeyhole, MessageSquare, Plus, Search, Settings2, Ellipsis, ArrowLeft, Compass } from 'lucide-react'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
 import { Brand } from './App'
@@ -22,6 +23,8 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
   const [discoverOpen, setDiscoverOpen] = useState(false), [search, setSearch] = useState('')
   const [joinRoomId, setJoinRoomId] = useState('')
   const [inviteCode, setInviteCode] = useState(() => location.pathname.match(/^\/invite\/([^/]+)\/?$/)?.[1] || '')
+  const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const searchInput = useRef<HTMLInputElement>(null)
   const removedIds = useRef(new Set<string>())
   const consumeRoomLink = () => { const url = new URL(location.href); url.searchParams.delete('room'); history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`); setJoinRoomId('') }
   const onJoined = (r: RoomSummary) => { removedIds.current.delete(r.id); state.allow(r.id); setRooms(old => [...old.filter(x => x.id !== r.id), r]); setActive(r.id); if (new URLSearchParams(location.search).get('room') === r.id) consumeRoomLink() }
@@ -65,26 +68,38 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
     resize(); window.visualViewport?.addEventListener('resize', resize); window.visualViewport?.addEventListener('scroll', resize); window.addEventListener('resize', resize)
     return () => { window.visualViewport?.removeEventListener('resize', resize); window.visualViewport?.removeEventListener('scroll', resize); window.removeEventListener('resize', resize) }
   }, [])
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !profileOpen && !createOpen && !detailsOpen && !discoverOpen && !inviteCode) {
+        event.preventDefault(); setActive(current => matchMedia('(max-width:700px)').matches ? '' : current); requestAnimationFrame(() => searchInput.current?.focus())
+      }
+    }
+    window.addEventListener('keydown', shortcut)
+    return () => window.removeEventListener('keydown', shortcut)
+  }, [profileOpen, createOpen, detailsOpen, discoverOpen, inviteCode])
+  const unreadCount = rooms.filter(r => r.lastSeq > r.lastReadSeq).length
+  const filteredRooms = rooms.filter(r => r.name.toLowerCase().includes(search.trim().toLowerCase()) && (filter === 'all' || r.lastSeq > r.lastReadSeq))
   const room = rooms.find(r => r.id === active)
   return <main data-testid="app-shell" className={`workspace ${active ? 'chat-open' : ''}`}>
     <aside className="sidebar">
       <header className="sidebar-brand"><Brand/><button className="icon" aria-label="新建房间" onClick={e => { rememberFocus(e); setCreateOpen(true) }}><Plus size={21}/></button></header>
-      <div className="sidebar-intro"><h1>会话</h1><span className="eyebrow">你的每一处连接</span></div>
-      <div className="search"><Search size={17}/><input aria-label="搜索房间" placeholder="搜索房间" value={search} onChange={e => setSearch(e.target.value)}/></div>
+      <div className="sidebar-intro"><h1>会话</h1><span className="room-count">{rooms.length} 个房间</span></div>
+      <div className="search"><Search size={17}/><input ref={searchInput} onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); searchInput.current?.blur() } }} aria-label="搜索房间" placeholder="搜索房间" value={search} onChange={e => setSearch(e.target.value)}/>{search ? <button className="search-clear" aria-label="清除搜索" onClick={() => { setSearch(''); searchInput.current?.focus() }}><X size={14}/></button> : <kbd aria-hidden="true">⌘ K</kbd>}</div>
       <button className="discover-button" onClick={e => { rememberFocus(e); setDiscoverOpen(true) }}><Compass size={17}/>发现公开房间<ArrowLeft className="discover-arrow" size={14}/></button>
+      <LayoutGroup id="room-filter"><div className="room-filters" aria-label="筛选会话">{(['all', 'unread'] as const).map(value => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{filter === value && <motion.span className="tab-indicator" layoutId="room-filter" transition={{ type: 'spring', stiffness: 420, damping: 34 }}/>}<span>{value === 'all' ? '全部会话' : '未读'}{value === 'unread' && unreadCount > 0 && <b>{unreadCount}</b>}</span></button>)}</div></LayoutGroup>
       {error && <div role="alert" className="sidebar-error">{error}<button className="text-button" onClick={() => { setRoomsLoading(true); void refresh().finally(() => setRoomsLoading(false)) }}>重新加载房间</button></div>}
       {roomsLoading && !rooms.length && <p role="status" className="timeline-notice">正在读取房间…</p>}
-      <nav data-testid="room-list" className="room-list" aria-label="房间列表">{rooms.filter(r => r.name.toLowerCase().includes(search.toLowerCase())).map(r => <button data-testid={`room-${r.id}`} key={r.id} className={`room-row ${r.id === active ? 'selected' : ''}`} onClick={() => { setActive(r.id); setDetailsOpen(false) }}>
+      <nav data-testid="room-list" className="room-list" aria-label="房间列表">{filteredRooms.map(r => <button data-testid={`room-${r.id}`} key={r.id} aria-current={r.id === active ? 'true' : undefined} className={`room-row ${r.id === active ? 'selected' : ''}`} onClick={() => { setActive(r.id); setDetailsOpen(false) }}>
         <span className="room-icon">{r.visibility === 'private' ? <LockKeyhole size={20}/> : <Hash size={22}/>}</span><span className="room-copy"><strong>{r.name}</strong><span>{r.lastMessage?.deletedAt ? '消息已删除' : r.lastMessage?.text ? `${r.lastMessage.sender.id === user.id ? '你' : r.lastMessage.sender.displayName}：${r.lastMessage.text}` : (r.lastMessage?.attachment ? '[图片]' : r.description || '还没有消息')}</span></span>{r.lastSeq > r.lastReadSeq && <span className="unread" aria-label={`${r.lastSeq - r.lastReadSeq} 条未读`}>{r.lastSeq - r.lastReadSeq > 99 ? '99+' : r.lastSeq - r.lastReadSeq}</span>}
-      </button>)}{!roomsLoading && !error && !rooms.filter(r => r.name.toLowerCase().includes(search.toLowerCase())).length && <div className="compact-empty"><MessageSquare size={24}/><h3>{search ? '没有匹配的会话' : '还没有加入房间'}</h3><p>{search ? '试试其他关键词。' : '发现公开房间，或创建你的第一个空间。'}</p></div>}</nav>
+      </button>)}{!roomsLoading && !error && !filteredRooms.length && <div className="compact-empty"><MessageSquare size={24}/><h3>{search ? '没有匹配的会话' : filter === 'unread' ? '未读消息都看完了' : '还没有加入房间'}</h3><p>{search ? '试试其他关键词。' : filter === 'unread' ? '新的消息到来时，会出现在这里。' : '发现公开房间，或创建你的第一个空间。'}</p></div>}</nav>
       <div className={`connection ${realtime.connection}`} role="status"><i/>{realtime.connection === 'connected' ? '实时连接已建立' : realtime.connection === 'connecting' ? '正在连接…' : '连接中断 · 消息将保留'}{realtime.connection === 'offline' && <button onClick={realtime.reconnect}>重连</button>}</div>
       <div className="sidebar-footer"><span className="avatar">{user.displayName.slice(0,1)}</span><span><strong>{user.displayName}</strong><small>{user.isGuest ? '访客' : `@${user.username}`}</small></span><button className="icon" aria-label="个人设置" onClick={e => { rememberFocus(e); setProfileOpen(true) }}><Settings2 size={19}/></button></div>
     </aside>
     <section data-testid="chat-panel" className="conversation" aria-label="会话">{room ? <>
-      <header className="chat-header"><button data-testid="mobile-back" className="icon mobile-back" aria-label="返回会话列表" onClick={() => { setActive(''); setDetailsOpen(false) }}><ArrowLeft size={21}/></button><span className="room-icon small">{room.visibility === 'private' ? <LockKeyhole size={19}/> : <Hash size={21}/>}</span><div className="chat-heading"><h2>{room.name}</h2><p>{room.memberCount} 位成员 · {room.visibility === 'private' ? '私密房间' : '公开房间'}</p></div><button data-testid="room-actions" className="icon" aria-label="房间详情" onClick={e => { rememberFocus(e); setDetailsOpen(true) }}><Ellipsis size={22}/></button></header>
+      <header className="chat-header"><button data-testid="mobile-back" className="icon mobile-back" aria-label="返回会话列表" onClick={() => { setActive(''); setDetailsOpen(false) }}><ArrowLeft size={21}/></button><span className="room-icon small">{room.visibility === 'private' ? <LockKeyhole size={19}/> : <Hash size={21}/>}</span><div className="chat-heading"><h2>{room.name}</h2><p><span className={`presence-dot ${realtime.connection}`}/>{room.memberCount} 位成员 · {room.visibility === 'private' ? '私密房间' : '公开房间'}</p></div><button data-testid="room-actions" className="icon" aria-label="房间详情" onClick={e => { rememberFocus(e); setDetailsOpen(true) }}><Ellipsis size={22}/></button></header>
       {realtime.connection !== 'connected' && <div className="offline-banner" role="status"><span>{realtime.connection === 'connecting' ? '正在建立实时连接…' : '连接中断，未发送消息会保留在本机'}</span><button onClick={realtime.reconnect}>重连</button></div>}
       <Chat key={room.id} user={user} room={room} state={state} visible={!profileOpen && !detailsOpen && !createOpen && !discoverOpen && !inviteCode} onRead={seq => setRooms(old => old.map(r => r.id === room.id ? { ...r, lastReadSeq: Math.max(r.lastReadSeq, seq) } : r))}/>
-    </> : <div className="conversation-empty"><MessageSquare size={30}/><h2>选择一处，开始对话</h2><p>创建房间，或发现一个新的公开空间。</p></div>}</section>
+    </> : <div className="conversation-empty"><MessageSquare size={30}/><h2>选择一处，开始对话</h2><p>每一场好对话，都从一句你好开始。</p><div className="empty-actions"><button className="primary" onClick={e => { rememberFocus(e); setDiscoverOpen(true) }}>探索房间<ArrowUpRight size={16}/></button><button className="secondary" onClick={e => { rememberFocus(e); setCreateOpen(true) }}><Plus size={16}/>创建房间</button></div></div>}</section>
     <Profile install={install} notifications={notifications} user={user} setUser={setUser} open={profileOpen} onOpenChange={setProfileOpen}/>
     <CreateRoom open={createOpen} onOpenChange={setCreateOpen} onCreated={onJoined}/>
     <Discover open={discoverOpen} onOpenChange={setDiscoverOpen} initialRoomId={joinRoomId} joinedIds={rooms.map(r => r.id)} onJoined={onJoined}/>

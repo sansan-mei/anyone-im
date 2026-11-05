@@ -1,4 +1,4 @@
-import * as Dialog from '@radix-ui/react-dialog'
+import { Dialog } from '@animate-ui/react/primitives/radix-ui/dialog'
 import { X } from 'lucide-react'
 import { useRef, type ReactNode } from 'react'
 export function Modal({ open, onOpenChange, title, description, children, sheet = false }: { open: boolean; onOpenChange: (v: boolean) => void; title: string; description: string; children: ReactNode; sheet?: boolean }) {
@@ -9,7 +9,7 @@ export function Modal({ open, onOpenChange, title, description, children, sheet 
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Overlay className="modal-overlay"/>
-      <Dialog.Content className={`modal ${sheet ? 'sheet' : ''}`} onCloseAutoFocus={event => {
+      <Dialog.Content data-side={sheet ? 'right' : undefined} className={`modal ${sheet ? 'sheet' : ''}`} onCloseAutoFocus={event => {
         const target = opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>('[data-testid="message-input"], [data-testid="mobile-back"]')
         if (target) { event.preventDefault(); target.focus() }
       }}>
