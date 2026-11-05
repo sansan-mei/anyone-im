@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { io, type Socket } from 'socket.io-client'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -40,6 +40,22 @@ async function multipart() {
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
+let templateDir: string
+beforeAll(async () => {
+  // Build the schema once, outside the per-test deadline. Each fixture receives
+  // its own copy of this closed database, never a shared connection or data.
+  templateDir = await mkdtemp(join(tmpdir(), 'anyone-schema-'))
+  const proc = Bun.spawn([process.execPath, 'scripts/database.ts', 'push'], {
+    cwd: join(import.meta.dir, '..'),
+    env: { ...process.env, DB_PROVIDER: 'sqlite', DATABASE_URL: `file:${templateDir}/template.sqlite` },
+    stdout: 'pipe', stderr: 'pipe', timeout: 20000
+  })
+  const [status, stdout, stderr] = await Promise.all([
+    proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()
+  ])
+  if (status !== 0) throw new Error(`Test schema initialization failed (${status}):\n${stdout}\n${stderr}`)
+}, 30000)
+afterAll(async () => { if (templateDir) await rm(templateDir, { recursive: true, force: true }) })
 async function factory() {
   const file = Bun.file(join(import.meta.dir, '../src/app.ts'))
   expect(await file.exists()).toBe(true)
@@ -50,9 +66,7 @@ async function fixture(options: import('../src/app').ApplicationOptions = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'anyone-db-'))
   cleanups.push(() => rm(dir, { recursive: true, force: true }))
   const databaseUrl = `file:${dir}/test.sqlite`
-  const proc = Bun.spawn(['bun', 'scripts/database.ts', 'push'], { cwd: join(import.meta.dir, '..'), env: { ...process.env, DB_PROVIDER: 'sqlite', DATABASE_URL: databaseUrl }, stdout: 'pipe', stderr: 'pipe' })
-  const status = await proc.exited
-  if (status !== 0) throw new Error(await new Response(proc.stderr).text())
+  await copyFile(join(templateDir, 'template.sqlite'), join(dir, 'test.sqlite'))
   const { createApplication } = await factory()
   const app = await createApplication({ port: 0, host: '127.0.0.1', dataDir: dir, databaseUrl, ...options })
   cleanups.push(() => app.close())
