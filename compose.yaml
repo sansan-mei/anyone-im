@@ -1,6 +1,7 @@
 name: default
 services:
   anyone-im:
+    platform: linux/amd64
     build: .
     image: 1596944197/anyone-im:latest
     container_name: anyone-im

@@ -2,6 +2,20 @@
 
 工作流 `.github/workflows/docker-publish.yml` 名称为 **Manual Docker build and publish**。目标固定为 `1596944197/anyone-im`，用户名 `1596944197`，平台 `linux/amd64`。
 
+## 本地平台与镜像体积
+
+Dockerfile 的基础阶段和最终运行阶段，以及 Compose 服务均固定 `linux/amd64`，Windows、Intel Mac 和 Apple 芯片 Mac 使用同一 Linux x86-64 目标。Windows Docker Desktop 需要切换到 Linux 容器模式；ARM 主机的构建器需要支持 amd64 仿真。
+
+用户明确授权本次构建后，可使用以下命令（同样适用于 PowerShell）：
+
+```sh
+docker buildx build --platform linux/amd64 --load -t 1596944197/anyone-im:latest .
+```
+
+镜像继续使用 Alpine 和多阶段构建，只复制生产依赖、前端产物、服务端 bundle 和数据库工具。额外裁剪生成 Prisma 客户端中未使用的 WASM 查询引擎/编译器、类型声明和 source map，以及 Prisma Studio 静态资源和依赖中的重复原生查询引擎。保留生成客户端的原生查询引擎、运行库和 Prisma schema engine，以支持服务运行和现有 `bun run db:push`。
+
+实际体积以构建后测量为准，不能以本机 node_modules 大小推算。手动发布工作流会验证镜像平台，并在任务摘要记录未压缩字节数；Docker Hub 的压缩传输大小、镜像未压缩大小和本机构建缓存占用是不同指标。现有 MySQL 容器烟测仍在推送前验证建表和应用功能。
+
 ## 自动验证、手动发布
 
 - `.github/workflows/ci.yml` 保留 push / PR 的 SQLite、MySQL、浏览器、类型和应用构建验证。

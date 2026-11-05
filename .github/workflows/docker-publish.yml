@@ -66,6 +66,15 @@ jobs:
           cache-from: type=gha,scope=anyone-im-amd64
           cache-to: type=gha,mode=max,scope=anyone-im-amd64
 
+      - name: Check image platform and report size
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform="$(docker image inspect anyone-im:ci --format '{{.Os}}/{{.Architecture}}')"
+          test "$platform" = linux/amd64
+          bytes="$(docker image inspect anyone-im:ci --format '{{.Size}}')"
+          echo "- Image platform: $platform; uncompressed size: $bytes bytes." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check packaged PWA resources without network access
         shell: bash
         run: |
