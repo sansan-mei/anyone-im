@@ -296,7 +296,13 @@ test('public discovery joins only on request, search filters member rooms and no
   const left = page.waitForRequest(r => r.url().endsWith('/fixture-public/leave') && r.method() === 'POST')
   await page.getByRole('button', { name: '确认离开' }).click(); await left
   await expect(page.getByTestId('room-fixture-public')).toHaveCount(0)
-  await page.getByLabel('搜索房间').fill('没有这个房间')
+  const search = page.getByLabel('搜索房间')
+  await search.focus()
+  await expect(search).toHaveCSS('box-shadow', 'none')
+  await expect(search).toHaveCSS('border-top-width', '0px')
+  await expect(page.locator('.search')).not.toHaveCSS('box-shadow', 'none')
+  await expect(page.locator('.search input')).toHaveCount(1)
+  await search.fill('没有这个房间')
   await expect(page.getByText('没有匹配的会话')).toBeVisible()
 })
 
@@ -467,8 +473,8 @@ test('system dark theme uses readable foreground tokens; narrow chat and dialogs
   await page.emulateMedia({colorScheme:'dark'}); await fixture(page, true)
   await page.route('**/api/rooms/fixture-room/messages*', route => route.fulfill({json:{data:{messages:[msg(1,'一条用于布局验证的真实测试夹具。'.repeat(8))],hasMore:false}}}))
   await page.goto('/')
-  await expect(page.getByTestId('app-shell')).toHaveCSS('color','rgb(226, 234, 235)')
-  await expect(page.getByTestId('send-message')).toHaveCSS('color','rgb(14, 40, 37)')
+  await expect(page.getByTestId('app-shell')).toHaveCSS('color','rgb(244, 244, 245)')
+  await expect(page.getByTestId('send-message')).toHaveCSS('color','rgb(24, 24, 27)')
   await page.screenshot({path:'test-results/desktop-dark.png'})
   await page.setViewportSize({width:320,height:568})
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -485,7 +491,7 @@ test('mobile controls keep 44px touch targets and muted text meets small-text co
   await expect(page.getByRole('button',{name:'重连',exact:true}).first()).toBeVisible()
   const undersized = await page.locator('button').evaluateAll(nodes => nodes.filter(node => { const r=node.getBoundingClientRect(); return r.width>0 && r.height>0 && (r.width<44 || r.height<44) }).map(node=>node.textContent || node.getAttribute('aria-label')))
   expect(undersized).toEqual([])
-  await expect(page.locator('.room-copy>span')).toHaveCSS('color','rgb(94, 110, 117)')
+  await expect(page.locator('.room-copy>span')).toHaveCSS('color','rgb(104, 104, 114)')
 })
 
 test('reduced visual viewport keeps composer and form dialog above mobile keyboard', async ({ page }) => {

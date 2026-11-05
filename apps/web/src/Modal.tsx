@@ -8,8 +8,8 @@ export function Modal({ open, onOpenChange, title, description, children, sheet 
   wasOpen.current = open
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
-      <Dialog.Overlay className="modal-overlay"/>
-      <Dialog.Content data-side={sheet ? 'right' : undefined} className={`modal ${sheet ? 'sheet' : ''}`} onCloseAutoFocus={event => {
+      <Dialog.Overlay className="modal-overlay" transition={{ type: 'tween', duration: 0.15, ease: 'easeOut' }} exitTransition={{ type: 'tween', duration: 0.1, ease: 'easeIn' }}/>
+      <Dialog.Content transition={{ type: 'tween', duration: 0.15, ease: 'easeOut' }} exitTransition={{ type: 'tween', duration: 0.1, ease: 'easeIn' }} data-side={sheet ? 'right' : undefined} className={`modal ${sheet ? 'sheet' : ''}`} onCloseAutoFocus={event => {
         const target = opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>('[data-testid="message-input"], [data-testid="mobile-back"]')
         if (target) { event.preventDefault(); target.focus() }
       }}>

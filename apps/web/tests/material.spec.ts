@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 // Isolated visual fixture; no backend, seed data, or production conversations.
-test('Material-inspired blue surfaces, readable hierarchy and responsive themes', async ({ page }) => {
+test('Neutral surfaces, readable hierarchy and responsive themes', async ({ page }) => {
   const user = { id: 'style-me', displayName: '林间', username: null, isGuest: true }
   const room = { id: 'style-room', name: '设计讨论', description: '一起把想法变成现实', visibility: 'private', role: 'member', memberCount: 2, onlineCount: 1, lastSeq: 2, lastReadSeq: 2, lastMessage: null, updatedAt: '2026-01-01T12:00:00Z' }
   const messages = [
@@ -28,12 +28,12 @@ test('Material-inspired blue surfaces, readable hierarchy and responsive themes'
   await expect(page.locator('.connection')).toContainText('实时连接已建立')
   await page.getByTestId('message-input').fill('一起开始下一段对话')
   const send = page.getByTestId('send-message')
-  await expect(send).toHaveCSS('background-color', 'rgb(11, 87, 208)')
-  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(234, 241, 251)')
-  await expect(page.getByTestId('chat-panel')).toHaveCSS('border-top-left-radius', '24px')
-  await expect(page.locator('.bubble').first()).toHaveCSS('font-size', '15px')
-  await expect(page.locator('.message-meta').first()).toHaveCSS('font-size', '12px')
-  await expect(page.locator('.room-copy > span')).toHaveCSS('font-size', '13px')
+  await expect(send).toHaveCSS('background-color', 'rgb(36, 36, 39)')
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
+  await expect(page.getByTestId('chat-panel')).toHaveCSS('border-top-left-radius', '0px')
+  await expect(page.locator('.bubble').first()).toHaveCSS('font-size', '14px')
+  await expect(page.locator('.message-meta').first()).toHaveCSS('font-size', '10px')
+  await expect(page.locator('.room-copy > span')).toHaveCSS('font-size', '11px')
   await page.screenshot({ path: 'test-results/material-desktop-light.png' })
 
   for (const theme of ['light', 'dark'] as const) {
@@ -56,7 +56,7 @@ test('Material-inspired blue surfaces, readable hierarchy and responsive themes'
     })
     for (const pair of pairs) expect(pair.contrast, `${theme}: ${pair.pair}`).toBeGreaterThanOrEqual(4.5)
   }
-  await expect(send).toHaveCSS('background-color', 'rgb(168, 199, 250)')
+  await expect(send).toHaveCSS('background-color', 'rgb(244, 244, 245)')
   await page.screenshot({ path: 'test-results/material-desktop-dark.png' })
   await page.setViewportSize({ width: 320, height: 568 })
   await expect(page.getByTestId('chat-panel')).toHaveCSS('border-top-left-radius', '0px')
