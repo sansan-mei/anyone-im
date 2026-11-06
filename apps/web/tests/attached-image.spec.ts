@@ -19,9 +19,11 @@ async function mount(page: Page, fakeObserver = true) {
       for (const observer of instances) for (const target of [...observer.targets]) observer.callback([{ target, isIntersecting: visible } as IntersectionObserverEntry], observer as unknown as IntersectionObserver)
     }
   })
-  await page.route('**/__image-fixture', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div><script type="module" src="/tests/fixtures/attached-image.tsx"></script>' }))
-  await page.goto('/__image-fixture')
-  await page.waitForFunction(() => !!window.__imageFixture)
+  // Let Vite transform the HTML and inject React Refresh's required preamble.
+  // Hand-fulfilled HTML bypasses that transform and leaves $RefreshSig$ undefined.
+  await page.goto('/tests/fixtures/attached-image.html')
+  // Poll from the test process rather than RAF in the deliberately paused page clock.
+  await expect.poll(() => page.evaluate(() => !!window.__imageFixture)).toBe(true)
   await page.evaluate(() => window.__imageFixture.render())
   await expect(page.getByRole('status')).toContainText('图片将在滚动到附近时加载')
 }

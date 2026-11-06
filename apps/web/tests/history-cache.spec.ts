@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 
 // Browser layout/integration coverage; offline Node tests cover journal/async ordering.
 test('bounded history windows retain backscroll, expose forward paging, and cold-load evicted rooms', async ({ page }) => {
+  // This intentionally performs 22 sequential history requests plus nine room visits.
+  // Keep each assertion's normal timeout; allow enough time for the complete browser journey.
+  test.setTimeout(60_000)
   const user = { id: 'history-user', displayName: '历史用户', username: null, isGuest: true }
   const rooms = Array.from({ length: 9 }, (_, i) => ({ id: `history-${i}`, name: `历史房间 ${i}`, description: '', visibility: 'public', role: 'owner', memberCount: 1, onlineCount: 1, lastSeq: 345, lastReadSeq: 0, lastMessage: null, updatedAt: '2026-11-01T00:00:00Z' }))
   let coldReads = 0
