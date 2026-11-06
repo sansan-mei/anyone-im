@@ -454,8 +454,9 @@ describe('message page budgets', () => {
           backward.unshift(...older.messages.map((m: any) => m.seq))
         }
         expect(backward).toEqual(forward)
-        expect((await client.request(`${path}?afterSeq=61`)).body.data).toEqual({ messages: [], hasMore: false })
-        expect((await client.request(`${path}?beforeSeq=1`)).body.data).toEqual({ messages: [], hasMore: false })
+        expect(latest.changeCursor).toEqual({ generation: expect.any(String), revision: 0 })
+        expect((await client.request(`${path}?afterSeq=61`)).body.data).toEqual({ messages: [], hasMore: false, changeCursor: latest.changeCursor })
+        expect((await client.request(`${path}?beforeSeq=1`)).body.data).toEqual({ messages: [], hasMore: false, changeCursor: latest.changeCursor })
         expect(await db.message.count({ where: { roomId: room.id } })).toBe(61)
       } finally { await db.$disconnect() }
     })
