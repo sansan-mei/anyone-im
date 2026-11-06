@@ -15,7 +15,7 @@ The `SessionApi` integration contract is reversible `hold()/resume()` with `isCu
 
 ## Sensitive UI and portals
 
-The workspace remains mounted beneath a hidden, `display:none`, inert and `aria-hidden` wrapper. Workspace-owned modal open props are gated by `!paused`, including RoomDetails' **nested action confirmation** (`open && !!confirm`); closing only the outer dialog is insufficient to release a nested focus scope. Chat receives `visible=false` so read effects stop. The lock also hides `.modal`/`.modal-overlay` body portals during exit animations. Chat's own delete dialog must use its visibility gate to release a portal focus trap while locked (implemented by its owning change).
+The workspace remains mounted beneath a hidden, `display:none`, inert and `aria-hidden` wrapper. A verification hold closes transient settings/create/discovery/details dialogs and clears nested destructive confirmations; those must be explicitly reopened after resume, avoiding competing Radix focus/aria-hidden stacks. The conversation, active room and message draft remain mounted. Workspace-owned modal open props are gated by `!paused`, including RoomDetails' **nested action confirmation** (`open && !!confirm`); closing only the outer dialog is insufficient to release a nested focus scope. Chat receives `visible=false` so read effects stop. The lock also hides `.modal`/`.modal-overlay` body portals during exit animations. Chat's own delete dialog must use its visibility gate to release a portal focus trap while locked (implemented by its owning change).
 
 This is a display/operation lock, not memory encryption or durable offline storage. Already-authorized data remains in this page's memory while identity is uncertain. Reloading/closing the page still loses memory-only drafts/history; nothing is added to IndexedDB/localStorage. External tabs already opened to an image cannot be retroactively erased by this UI.
 
@@ -49,7 +49,7 @@ Observed tracer-bullet RED→GREEN evidence:
 
 Additional regression coverage verifies 5xx recovery on visible/online events, authoritative logout/mismatch/401, cross-tab changes with late success, disposed/obsolete checks and completion-time revalidation. Reviewed lifecycle repairs were tested first against the unfixed source:
 
-- Nested confirmation: actual RoomDetails JSDOM render retained **1 dialog instead of 0** after `open=false`; gating nested open passed, including preserved confirmation state on resume.
+- Nested confirmation: actual RoomDetails JSDOM render originally retained **1 dialog instead of 0** after `open=false`. Real-browser CI additionally exposed competing restored portal stacks; locks now close transient dialogs and clear destructive confirmation state, and regression tests require explicit user reopening.
 - Interrupted startup: the actual Workspace hook seam left `active=''` instead of `room1` in desktop/default, joined deeplink and unjoined deeplink cases. Resume initialization passed all three and a two-room already-initialized selection-preservation regression, while sharing the resumed pending HTTP flight.
 - Resume signal: `onResume` was `undefined`; the API suite now verifies live-boundary delivery, unsubscribe and invalidation/disposal, alongside all prior operation-generation fence tests.
 

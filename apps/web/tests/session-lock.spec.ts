@@ -92,14 +92,13 @@ test('a nested room action confirmation releases its portal focus scope while se
   f.setMode('ok')
   await retry.click()
   await expect(page.getByTestId('session-lock')).toHaveCount(0)
-  // Radix can dismiss a nested confirmation while releasing its focus scope.
-  // Require a usable resumed workspace and an explicitly reopenable action,
-  // not automatic reopening of a destructive confirmation after verification.
-  const details = page.getByRole('dialog', { name: '房间详情', exact: true })
-  if (!await details.isVisible()) await page.getByTestId('room-actions').click()
-  const confirmation = page.getByRole('dialog', { name: '撤销全部邀请？', exact: true })
-  if (!await confirmation.isVisible()) await page.getByRole('button', { name: '撤销全部邀请', exact: true }).click()
-  await expect(confirmation).toBeVisible()
+  // Locks close transient dialogs; only the conversation/draft cache is retained.
+  // Reopen explicitly, without competing restored Radix focus/aria-hidden stacks.
+  await expect(page.locator('.modal:visible, .modal-overlay:visible')).toHaveCount(0)
+  await page.getByTestId('room-actions').click()
+  await expect(page.getByRole('dialog', { name: '房间详情', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '撤销全部邀请', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '撤销全部邀请？', exact: true })).toBeVisible()
 })
 
 for (const requested of ['', room.id, 'unjoined-private-room']) test(`an interrupted initial room response retries startup selection/deeplinks: ${requested || 'desktop default'}`, async ({ page }) => {

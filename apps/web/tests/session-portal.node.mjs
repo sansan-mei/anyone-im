@@ -40,7 +40,9 @@ test('closing RoomDetails also closes an already-open action confirmation', asyn
     await render(false)
     assert.equal(document.querySelectorAll('[role=dialog]').length, 0, 'a paused parent must release the nested confirmation scope')
     await render(true)
-    assert.equal(document.querySelectorAll('[role=dialog]').length, 2, 'same-session resume preserves the confirmation state')
+    assert.equal(document.querySelectorAll('[role=dialog]').length, 1, 'resume must not restore a destructive confirmation focus scope')
+    await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '离开房间').click())
+    assert.equal(document.querySelectorAll('[role=dialog]').length, 2, 'the user can explicitly reopen a fresh confirmation')
   } finally {
     await act(async () => root.unmount())
     for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key] }

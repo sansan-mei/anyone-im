@@ -480,11 +480,11 @@ test('system dark theme uses readable foreground tokens; narrow chat and dialogs
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({path:'test-results/mobile-chat-dark-320.png'})
   await page.getByTestId('room-actions').click()
-  const dialog = await page.getByRole('dialog',{name:'房间详情'}).boundingBox()
-  // Composited dialog transforms can report subpixel floating-point noise.
-  expect(dialog!.width).toBeLessThanOrEqual(320.5)
-  expect(dialog!.x).toBeGreaterThanOrEqual(-0.5)
-  expect(dialog!.x + dialog!.width).toBeLessThanOrEqual(320.5)
+  // Sample after the slide-in settles, rather than asserting a transient x offset.
+  await expect.poll(async () => {
+    const dialog = await page.getByRole('dialog',{name:'房间详情'}).boundingBox()
+    return Boolean(dialog && dialog.width <= 320.5 && dialog.x >= -0.5 && dialog.x + dialog.width <= 320.5)
+  }).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({path:'test-results/mobile-details-dark-320.png'})
 })

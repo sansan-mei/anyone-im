@@ -26,6 +26,9 @@ export function Workspace({ install, user, setUser, paused = false }: { install:
   const [profileOpen, setProfileOpen] = useState(false), [createOpen, setCreateOpen] = useState(false), [detailsOpen, setDetailsOpen] = useState(false)
   const [discoverOpen, setDiscoverOpen] = useState(false), [search, setSearch] = useState('')
   const [joinRoomId, setJoinRoomId] = useState('')
+  // Reopening both levels of animated Radix portals after a lock can leave
+  // competing focus/aria-hidden stacks. Close transient dialogs, not the chat.
+  useEffect(() => { if (paused) { setProfileOpen(false); setCreateOpen(false); setDetailsOpen(false); setDiscoverOpen(false) } }, [paused])
   const [inviteCode, setInviteCode] = useState(() => location.pathname.match(/^\/invite\/([^/]+)\/?$/)?.[1] || '')
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const searchInput = useRef<HTMLInputElement>(null)

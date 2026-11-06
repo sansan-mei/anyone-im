@@ -40,6 +40,8 @@ test('bounded history windows retain backscroll, expose forward paging, and cold
   }
   await expect(page.getByRole('button', { name: '加载更早消息', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '加载更新消息', exact: true })).toBeVisible()
+  await expect(page.locator('.jump-latest')).toHaveCount(0)
+  await expect(page.getByLabel('历史窗口导航')).toBeVisible()
   await list.evaluate(el => { el.scrollTop = el.scrollHeight })
   await page.getByRole('button', { name: '加载更新消息', exact: true }).click()
   await expect(articles.last()).toHaveAttribute('data-message-id', 'history-0-315')

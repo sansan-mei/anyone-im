@@ -9,7 +9,7 @@ export function RoomDetails({ room, user, open, onOpenChange, onChanged, onLeft 
   const [members, setMembers] = useState<Member[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState(''), [busy, setBusy] = useState(false), [invite, setInvite] = useState<Invite | null>(null), [notice, setNotice] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState<{ title: string; body: string; label: string; run: () => Promise<void> } | null>(null)
-  useEffect(() => { if (!open) setPassword('') }, [open])
+  useEffect(() => { if (!open) { setPassword(''); setConfirm(null) } }, [open])
   const load = async () => { setLoading(true); setError(''); try { setMembers((await api<{members: Member[]}>(`/rooms/${encodeURIComponent(room.id)}/members`)).members) } catch(e) { setError(errorText(e)) } finally { setLoading(false) } }
   useEffect(() => { if (open) void load() }, [open, room.id])
   const action = async (fn: () => Promise<void>) => { setBusy(true); setError(''); try { await fn() } catch(e) { setError(errorText(e)) } finally { setBusy(false) } }
