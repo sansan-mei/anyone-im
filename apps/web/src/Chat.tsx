@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, MessageSquare, RotateCcw, ImagePlus, ImageIcon, X, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, MessageSquare, RotateCcw, ImagePlus, ImageIcon, X, Trash2, Copy, Check } from 'lucide-react'
 import type { Message, RoomSummary, User } from '@anyone-im/contracts'
 import type { useMessages } from './useMessages'
 import { errorText } from './api'
@@ -8,6 +8,15 @@ import { Modal, rememberFocus } from './Modal'
 import { useAttachment } from './useAttachment'
 import { AttachedImage } from './AttachedImage'
 import { MAX_CACHED_ROOMS } from './history-cache'
+
+// Clipboard API needs a secure context; LAN/HTTP deployments fall back to execCommand.
+async function copyText(text: string) {
+  try { await navigator.clipboard.writeText(text); return true } catch {}
+  const area = document.createElement('textarea')
+  area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0'
+  document.body.appendChild(area); area.select()
+  try { return document.execCommand('copy') } catch { return false } finally { area.remove() }
+}
 export type MessageState = ReturnType<typeof useMessages>
 const positions = new Map<string, { top: number; bottom: boolean }>()
 function rememberPosition(key: string, position: { top: number; bottom: boolean }) {
@@ -19,6 +28,9 @@ export function Chat({ user, room, state, visible = true, onRead }: { user: User
   const [draft, setDraft] = useState(''), [atBottom, setAtBottom] = useState(true), [readError, setReadError] = useState('')
   const upload = useAttachment(room.id), fileInput = useRef<HTMLInputElement>(null)
   const [deleting, setDeleting] = useState<Message | null>(null), [deleteBusy, setDeleteBusy] = useState(false), [deleteError, setDeleteError] = useState('')
+  const [copied, setCopied] = useState<string | null>(null), copiedTimer = useRef<number>(undefined)
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), [])
+  const copyMessage = async (m: Message) => { if (!m.text || !await copyText(m.text)) return; setCopied(m.id); window.clearTimeout(copiedTimer.current); copiedTimer.current = window.setTimeout(() => setCopied(null), 1500) }
   const list = useRef<HTMLDivElement>(null), textarea = useRef<HTMLTextAreaElement>(null), stick = useRef(true), initial = useRef(true)
   const anchor = useRef<{ id?: string; offset: number; top: number; height: number } | null>(null)
   const key = `${user.id}:${room.id}`, lastRead = useRef(room.lastReadSeq), reading = useRef(0), onReadRef = useRef(onRead)
@@ -80,7 +92,7 @@ export function Chat({ user, room, state, visible = true, onRead }: { user: User
         {(!i || new Date(state.messages[i-1].createdAt).toDateString() !== new Date(m.createdAt).toDateString()) && <div className="date-divider"><span>{new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', year: 'numeric' })}</span></div>}
         {/* Layout/paint containment, not DOM virtualization; the history window bounds nodes. */}
         <article data-message-id={m.id} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }} className={`message ${m.sender.id === user.id ? 'own' : ''}`}>
-          <span className="avatar" aria-hidden="true">{m.sender.displayName.slice(0,1)}</span><div className="message-content"><div className="message-meta"><strong>{m.sender.displayName}</strong><time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>{!m.deletedAt && !state.deleted.has(m.id) && (m.sender.id === user.id || room.role === 'owner') && <button className="message-delete icon" aria-label="删除消息" onClick={e => { rememberFocus(e); setDeleteError(''); setDeleting(m) }}><Trash2 size={13}/></button>}</div><div className="bubble">{m.deletedAt || state.deleted.has(m.id) ? <span className="tombstone">消息已删除</span> : <>{m.attachment && <AttachedImage attachment={m.attachment} onLoad={imageLoaded}/ >}{m.text && <div className="message-text">{m.text}</div>}</>}</div></div>
+          <span className="avatar" aria-hidden="true">{m.sender.displayName.slice(0,1)}</span><div className="message-content"><div className="message-meta"><strong>{m.sender.displayName}</strong><time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="bubble">{m.deletedAt || state.deleted.has(m.id) ? <span className="tombstone">消息已删除</span> : <>{m.attachment && <AttachedImage attachment={m.attachment} onLoad={imageLoaded}/ >}{m.text && <div className="message-text">{m.text}</div>}</>}</div>{!m.deletedAt && !state.deleted.has(m.id) && (m.text || m.sender.id === user.id || room.role === 'owner') && <div className="message-actions">{m.text && <button type="button" aria-label={copied === m.id ? '已复制' : '复制消息'} onClick={() => copyMessage(m)}>{copied === m.id ? <Check size={13}/> : <Copy size={13}/>}<span>{copied === m.id ? '已复制' : '复制'}</span></button>}{(m.sender.id === user.id || room.role === 'owner') && <button type="button" className="danger-action" aria-label="删除消息" onClick={e => { rememberFocus(e); setDeleteError(''); setDeleting(m) }}><Trash2 size={13}/><span>删除</span></button>}</div>}</div>
         </article>
       </Fragment>)}
       {state.outbox.map(o => <article key={o.input.clientMessageId} className="message own pending"><div className="message-content"><div className="message-meta"><span>待发送</span></div><div className="bubble">{o.attachment && <AttachedImage attachment={o.attachment} onLoad={imageLoaded}/ >}{o.input.text && <div className="message-text">{o.input.text}</div>}</div><div className={`send-status ${o.state === 'failed' ? 'failed' : ''}`}>{o.state === 'sending' ? <span role="status">发送中…</span> : <><span>{o.error || '发送失败'}</span><button aria-label="重试发送" onClick={() => state.retry(o)}><RotateCcw size={13}/>重试</button></>}</div></div></article>)}

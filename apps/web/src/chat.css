@@ -157,14 +157,54 @@
   margin-right: 4px;
 }
 
-.message-delete {
-  margin-block: -12px;
-  color: var(--muted);
+/* Per-message actions sit under the bubble, on the author's side, within thumb reach. */
+.message-actions {
+  display: flex;
+  gap: 2px;
+  /* Buttons keep the 44px touch target; negative margin stops it from padding the timeline. */
+  margin: -4px -4px -8px;
 }
 
-.message-delete:hover:not(:disabled) {
+.own .message-actions {
+  justify-content: flex-end;
+}
+
+.message-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--text-meta);
+}
+
+.message-actions button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.message-actions .danger-action:hover:not(:disabled) {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* Mouse users get a quiet timeline; space stays reserved so hovering never shifts layout. */
+@media (hover: hover) and (pointer: fine) {
+  .message-actions {
+    margin: 2px -4px 0;
+    opacity: 0;
+    transition: opacity .15s ease;
+  }
+
+  .message-actions button {
+    min-height: 28px;
+  }
+
+  .message:hover .message-actions, .message:focus-within .message-actions {
+    opacity: 1;
+  }
 }
 
 .bubble {
