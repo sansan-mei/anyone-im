@@ -15,6 +15,8 @@ const messageFields = { clientMessageId: z.uuid(), text: z.string().trim().max(4
 export const sendMessageSchema = z.object(messageFields).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
 export const socketSendMessageSchema = z.object({ ...messageFields, roomId: z.string().min(1).max(64) }).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
 export const readSchema = z.object({ seq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict()
+export const changeCursorSchema = z.object({ generation: z.string().min(1).max(64), revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict()
+export const roomSubscribeSchema = z.object({ roomId: z.string().min(1).max(64), afterSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), changeCursor: changeCursorSchema.optional() }).strict()
 export const DEFAULT_PORT = 4100
 export const DEFAULT_MESSAGE_PAGE_SIZE = 15
 export const MAX_MESSAGE_PAGE_SIZE = 20
@@ -53,19 +55,23 @@ export interface RoomSummary {
   updatedAt: string
 }
 export interface Member { user: User; role: RoomRole; online: boolean }
-export interface MessagePage { messages: Message[]; hasMore: boolean }
+export interface ChangeCursor { generation: string; revision: number }
+export interface MessageDeletion { roomId: string; messageId: string; seq: number }
+export interface MessageChanges { resetRequired: boolean; deletions: MessageDeletion[] }
+// Optional extensions: legacy pages and legacy subscriptions remain valid.
+export interface MessagePage { messages: Message[]; hasMore: boolean; changeCursor?: ChangeCursor; changes?: MessageChanges }
 export interface Invite { code: string; urlPath: string; expiresAt: string }
 export interface InvitePreview { roomId: string; roomName: string; expiresAt: string }
 export interface SendMessageInput { clientMessageId: string; text: string; attachmentId?: string }
 export interface CreateRoomInput { name: string; description: string; visibility: 'public' | 'private'; password?: string }
 export interface ServerToClientEvents {
   'message:new': (message: Message) => void
-  'message:deleted': (event: { roomId: string; messageId: string; seq: number }) => void
+  'message:deleted': (event: MessageDeletion) => void
   'presence:update': (event: { roomId: string; count: number }) => void
   'room:updated': (event: { roomId: string }) => void
   'room:removed': (event: { roomId: string; reason: string }) => void
 }
 export interface ClientToServerEvents {
   'message:send': (input: SendMessageInput & { roomId: string }, ack: (result: Result<Message>) => void) => void
-  'room:subscribe': (input: { roomId: string; afterSeq?: number }, ack: (result: Result<MessagePage>) => void) => void
+  'room:subscribe': (input: { roomId: string; afterSeq?: number; changeCursor?: ChangeCursor }, ack: (result: Result<MessagePage>) => void) => void
 }

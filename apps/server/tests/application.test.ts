@@ -454,8 +454,9 @@ describe('message page budgets', () => {
           backward.unshift(...older.messages.map((m: any) => m.seq))
         }
         expect(backward).toEqual(forward)
-        expect((await client.request(`${path}?afterSeq=61`)).body.data).toEqual({ messages: [], hasMore: false })
-        expect((await client.request(`${path}?beforeSeq=1`)).body.data).toEqual({ messages: [], hasMore: false })
+        expect(latest.changeCursor).toEqual({ generation: expect.any(String), revision: 0 })
+        expect((await client.request(`${path}?afterSeq=61`)).body.data).toEqual({ messages: [], hasMore: false, changeCursor: latest.changeCursor })
+        expect((await client.request(`${path}?beforeSeq=1`)).body.data).toEqual({ messages: [], hasMore: false, changeCursor: latest.changeCursor })
         expect(await db.message.count({ where: { roomId: room.id } })).toBe(61)
       } finally { await db.$disconnect() }
     })
@@ -681,6 +682,114 @@ describe('streamed body isolation', () => {
       })
     }
   }
+})
+
+describe('authenticated attachment revalidation', () => {
+  test('real cookie authentication and current ACLs precede every conditional response', async () => {
+    let now = Date.now()
+    const app = await fixture({ attachmentCleanup: false, attachmentRetention: { now: () => now } })
+    const alice = agent(app.url), bob = agent(app.url), outsider = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Cache owner' })
+    await bob.request('/api/auth/guest', { displayName: 'Cache member' })
+    await outsider.request('/api/auth/guest', { displayName: 'Cache outsider' })
+    const room = (await alice.request('/api/rooms', { name: 'Private cache', password: 'cache-room-secret' })).body.data
+    expect((await bob.request(`/api/rooms/${room.id}/join`, { password: 'cache-room-secret' })).status).toBe(200)
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    const upload = async () => {
+      const form = new FormData()
+      form.set('file', new File([png], 'cache.png', { type: 'image/png' }))
+      const response = await fetch(`${app.url}/api/rooms/${room.id}/attachments`, { method: 'POST', headers: { cookie: alice.cookie, [EXPECTED_USER_HEADER]: alice.userId }, body: form })
+      expect(response.status).toBe(200)
+      return (await response.json()).data
+    }
+    const image = await upload()
+    const get = (cookie: string, expectedUser: string | null, validator?: string) => fetch(`${app.url}${image.url}`, { headers: { ...(cookie ? { cookie } : {}), ...(expectedUser === null ? {} : { [EXPECTED_USER_HEADER]: expectedUser }), ...(validator ? { 'If-None-Match': validator } : {}) } })
+    const cacheHeaders = (response: Response, etag: string) => {
+      expect(response.headers.get('cache-control')).toBe('private, no-cache')
+      expect(response.headers.get('etag')).toBe(etag)
+      expect(response.headers.get('vary')!.toLowerCase().split(/\s*,\s*/).sort()).toEqual(['cookie', 'x-anyone-user-id'])
+    }
+    const denied = async (response: Response, status: number) => {
+      expect(response.status).toBe(status)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('etag')).toBeNull()
+      expect(response.headers.get('last-modified')).toBeNull()
+      expect((await response.json()).error.code).toBeTruthy()
+    }
+    const first = await get(alice.cookie, alice.userId)
+    expect(first.status).toBe(200)
+    const aliceTag = first.headers.get('etag')!
+    expect(aliceTag).toMatch(/^"[a-f0-9]{64}"$/)
+    cacheHeaders(first, aliceTag)
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(png)
+    const unchanged = await get(alice.cookie, alice.userId, aliceTag)
+    expect(unchanged.status).toBe(304)
+    expect((await unchanged.arrayBuffer()).byteLength).toBe(0)
+    cacheHeaders(unchanged, aliceTag)
+    expect(unchanged.headers.get('content-length')).toBeNull()
+    expect((await get(alice.cookie, null, aliceTag)).status).toBe(304) // optional expected-user on GET
+    await denied(await get('', alice.userId, aliceTag), 401)
+    await denied(await get('anyone_session=invalid', alice.userId, '*'), 401)
+    await denied(await get(bob.cookie, alice.userId, aliceTag), 409)
+    await denied(await get(bob.cookie, bob.userId, '*'), 403) // unpublished, even for a room member
+    const message = (await alice.request(`/api/rooms/${room.id}/messages`, { clientMessageId: crypto.randomUUID(), text: '', attachmentId: image.id })).body.data
+    const bobFirst = await get(bob.cookie, bob.userId, aliceTag)
+    expect(bobFirst.status).toBe(200)
+    const bobTag = bobFirst.headers.get('etag')!
+    expect(bobTag).not.toBe(aliceTag)
+    cacheHeaders(bobFirst, bobTag)
+    expect(new Uint8Array(await bobFirst.arrayBuffer())).toEqual(png)
+    expect((await get(bob.cookie, bob.userId, `"other", W/${bobTag}`)).status).toBe(304)
+    await denied(await get(outsider.cookie, outsider.userId, '*'), 403)
+    expect((await alice.request(`/api/rooms/${room.id}/members/${bob.userId}`, undefined, 'DELETE')).status).toBe(200)
+    await denied(await get(bob.cookie, bob.userId, bobTag), 403)
+    expect((await alice.request(`/api/messages/${message.id}`, undefined, 'DELETE')).status).toBe(200)
+    await denied(await get(alice.cookie, alice.userId, aliceTag), 404)
+
+    const expiring = await upload()
+    const expiryHeaders = { cookie: alice.cookie, [EXPECTED_USER_HEADER]: alice.userId }
+    const expiryTag = (await fetch(`${app.url}${expiring.url}`, { headers: expiryHeaders })).headers.get('etag')!
+    now += 7 * 86400000 - 1
+    expect((await fetch(`${app.url}${expiring.url}`, { headers: { ...expiryHeaders, 'If-None-Match': expiryTag } })).status).toBe(304)
+    now++
+    await denied(await fetch(`${app.url}${expiring.url}`, { headers: { ...expiryHeaders, 'If-None-Match': expiryTag } }), 410)
+    await denied(await fetch(`${app.url}${expiring.url}`, { headers: { ...expiryHeaders, 'If-None-Match': '*' } }), 410)
+    expect((await alice.request('/api/auth/logout', {})).status).toBe(200)
+    await denied(await fetch(`${app.url}${expiring.url}`, { headers: { ...expiryHeaders, 'If-None-Match': expiryTag } }), 401)
+  })
+
+  test('real database projections skip blobs on weak/list/wildcard matches but load bytes for mismatches', async () => {
+    const app = await fixture({ attachmentCleanup: false })
+    const alice = agent(app.url)
+    await alice.request('/api/auth/guest', { displayName: 'Validator projections' })
+    const { PrismaClient } = await import('../generated/client')
+    const { Rooms } = await import('../src/rooms')
+    const { Attachments } = await import('../src/attachments')
+    const db = new PrismaClient({ datasources: { db: { url: app.databaseUrl } }, log: [{ emit: 'event', level: 'query' }] })
+    const selects: string[] = []
+    db.$on('query', event => { if (/^SELECT\b/i.test(event.query)) selects.push(event.query) })
+    try {
+      const attachments = new Attachments(new Rooms(db))
+      const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+      const image = await attachments.commit({ data: png, filename: 'projection.png', mimeType: 'image/png' }, 'lobby', alice.userId)
+      const etag = (await attachments.download(image.id, alice.userId)).headers.get('etag')!
+      for (const validator of [etag, `W/${etag}`, `"other", W/${etag}`, `"comma,inside", ${etag}`, '*', `, , ${etag},,`]) {
+        selects.length = 0
+        const result = await attachments.download(image.id, alice.userId, validator)
+        expect(result.status).toBe(304)
+        expect(result.body).toBeNull()
+        expect(selects.length).toBeGreaterThan(0)
+        expect(selects.filter(query => /["`]bytes["`]/i.test(query))).toEqual([])
+      }
+      for (const validator of ['"mismatch"', 'unquoted', `${etag}junk`, `w/${etag}`, `*, ${etag}`]) {
+        selects.length = 0
+        const result = await attachments.download(image.id, alice.userId, validator)
+        expect(result.status).toBe(200)
+        expect(new Uint8Array(await result.arrayBuffer())).toEqual(png)
+        expect(selects.filter(query => /["`]bytes["`]/i.test(query))).toHaveLength(1)
+      }
+    } finally { await db.$disconnect() }
+  })
 })
 
 describe('seven-day image resources', () => {

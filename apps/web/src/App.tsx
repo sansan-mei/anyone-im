@@ -4,6 +4,7 @@ import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
 import { ArrowUpRight, ArrowRight, Hash, Sparkles, CheckCheck, MessageCircle } from 'lucide-react'
 import { publicApi as api, createSessionApi, errorText, SESSION_CHANGED_TEXT, type SessionApi } from './api'
 import { SessionContext } from './SessionContext'
+import { createSessionRevalidator, type VerificationState } from './sessionRevalidation'
 import { Workspace } from './Workspace'
 import { usePwaInstall } from './PwaSettings'
 export function Brand() { return <span className="brand"><span className="brand-mark" aria-hidden="true"><i/><i/></span>Anyone<span className="brand-dot">/</span></span> }
@@ -13,6 +14,8 @@ export default function App() {
   const [name, setName] = useState(''), [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'guest' | 'login' | 'register'>('guest'), [username, setUsername] = useState(''), [password, setPassword] = useState('')
   const [stale, setStale] = useState(false)
+  const [verification, setVerification] = useState<VerificationState>('verified')
+  const verifier = useRef<ReturnType<typeof createSessionRevalidator> | null>(null)
   const epoch = useRef(0), sessionRef = useRef<SessionApi | null>(null), channel = useRef<BroadcastChannel | null>(null)
   const invalidate = useCallback(() => { epoch.current++; sessionRef.current?.dispose(); setUser(null); setPassword(''); setBusy(false); setStale(true) }, [])
   const announce = () => {
@@ -31,17 +34,26 @@ export default function App() {
   useEffect(() => () => sessionApi?.dispose(), [sessionApi])
   useEffect(() => {
     if (!sessionApi) return
-    const revalidate = () => {
-      void api<SessionData>('/session').then(s => { if (s.user?.id !== sessionApi.ownerId) sessionApi.invalidate() }).catch(() => sessionApi.invalidate())
-    }
+    const attempt = epoch.current
+    const current = createSessionRevalidator({
+      ownerId: sessionApi.ownerId,
+      check: () => api<SessionData>('/session', 'GET', undefined, AbortSignal.timeout(15_000)),
+      // isCurrent() is deliberately false during a reversible hold. Identity
+      // generation, not permission to perform protected work, fences this check.
+      isCurrent: () => sessionRef.current === sessionApi && epoch.current === attempt,
+      hold: () => sessionApi.hold(), resume: () => sessionApi.resume(),
+      invalidate: () => sessionApi.invalidate(), onState: setVerification,
+    })
+    verifier.current = current
+    const revalidate = () => { void current.revalidate() }
     const visible = () => { if (document.visibilityState === 'visible') revalidate() }
-    window.addEventListener('focus', revalidate); document.addEventListener('visibilitychange', visible)
-    return () => { window.removeEventListener('focus', revalidate); document.removeEventListener('visibilitychange', visible) }
+    window.addEventListener('focus', revalidate); window.addEventListener('online', revalidate); document.addEventListener('visibilitychange', visible)
+    return () => { current.dispose(); if (verifier.current === current) verifier.current = null; window.removeEventListener('focus', revalidate); window.removeEventListener('online', revalidate); document.removeEventListener('visibilitychange', visible) }
   }, [sessionApi])
   const confirmSession = async () => {
     const attempt = ++epoch.current
     setBusy(true); setError('')
-    try { const s = await api<SessionData>('/session'); if (attempt === epoch.current) { setUser(s.user); setStale(false) } } catch(e) { if (attempt === epoch.current) setError(errorText(e)) } finally { if (attempt === epoch.current) setBusy(false) }
+    try { const s = await api<SessionData>('/session'); if (attempt === epoch.current) { setUser(s.user); setStale(false); setVerification('verified') } } catch(e) { if (attempt === epoch.current) setError(errorText(e)) } finally { if (attempt === epoch.current) setBusy(false) }
   }
   useEffect(() => {
     const attempt = epoch.current
@@ -50,7 +62,15 @@ export default function App() {
   }, [])
   if (booting) return <div className="boot"><Brand/><p role="status">正在连接你的会话…</p></div>
   if (stale) return <main className="boot"><Brand/><p role="alert">{SESSION_CHANGED_TEXT}</p>{error && <p role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => void confirmSession()}>重新确认身份</button></main>
-  if (user && sessionApi) return <SessionContext.Provider value={sessionApi}><Workspace install={install} key={user.id} user={user} setUser={u => { if (u?.id !== user.id) { epoch.current++; sessionApi.dispose(); announce() } setUser(u); if (!u) { setMode('guest'); setPassword('') } }}/></SessionContext.Provider>
+  if (user && sessionApi) {
+    const locked = verification !== 'verified'
+    return <SessionContext.Provider value={sessionApi}>
+      <div hidden={locked} inert={locked} aria-hidden={locked ? true : undefined} style={{ display: locked ? 'none' : 'contents' }}>
+        <Workspace install={install} key={user.id} user={user} paused={locked} setUser={u => { if (u?.id !== user.id) { epoch.current++; sessionApi.dispose(); announce() } setUser(u); if (!u) { setMode('guest'); setPassword('') } }}/>
+      </div>
+      {locked && <main className="boot" data-testid="session-lock"><style>{'.modal,.modal-overlay{display:none!important}'}</style><Brand/><p role="status">{verification === 'checking' ? '正在重新确认会话身份…' : '暂时无法确认会话身份，内容已锁定。网络恢复后可继续，未发送内容仍保留在当前页面。'}</p><button className="primary" disabled={verification === 'checking'} onClick={() => void verifier.current?.revalidate()}>重新验证会话</button></main>}
+    </SessionContext.Provider>
+  }
   return <main className="auth-page">
     <header><Brand/><span className="eyebrow">在这里，保持联系</span></header>
     <div className="auth-layout">
@@ -80,7 +100,7 @@ export default function App() {
         try {
           const s = await api<SessionData>(`/auth/${mode}`, 'POST', mode === 'guest' ? { displayName: name.trim() } : { username: username.trim(), password, ...(mode === 'register' ? { displayName: name.trim() } : {}) })
           announce()
-          if (attempt === epoch.current) { setPassword(''); setUser(s.user) }
+          if (attempt === epoch.current) { setPassword(''); setUser(s.user); setVerification('verified') }
         } catch(e) { if (attempt === epoch.current) setError(errorText(e)) } finally { if (attempt === epoch.current) setBusy(false) }
       }}>
         {mode !== 'login' && <label>你的称呼<input data-testid="guest-name" autoFocus autoComplete="nickname" value={name} onChange={e => setName(e.target.value)} maxLength={32} required placeholder="大家该怎么称呼你？"/></label>}

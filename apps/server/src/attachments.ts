@@ -1,8 +1,24 @@
 import { basename } from 'node:path'
+import { createHash } from 'node:crypto'
 import { MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms, attachmentDto, attachmentMetadataSelect } from './rooms'
 import { fail, readLimited } from './security'
 import { attachmentExpired, clearExpiredAttachmentBytes } from './attachment-retention'
+
+function matchesIfNoneMatch(value: string | null | undefined, etag: string) {
+  if (value?.trim() === '*') return true
+  if (!value) return false
+  // RFC 9110 entity-tags can contain commas. Parse quoted tags, not split(',').
+  // GET uses weak comparison; ignore a reasonable number of empty list members.
+  const tags = [...value.matchAll(/(?:W\/)?("[\x21\x23-\x7e\x80-\xff]*")/g)]
+  let end = 0
+  for (const [index, tag] of tags.entries()) {
+    const separator = value.slice(end, tag.index)
+    if (!(index === 0 ? /^[ \t,]*$/ : /^[ \t]*,[ \t,]*$/).test(separator)) return false
+    end = tag.index + tag[0].length
+  }
+  return /^[ \t,]*$/.test(value.slice(end)) && tags.some(tag => tag[1] === etag)
+}
 
 export class Attachments {
   constructor(readonly rooms: Rooms) {}
@@ -44,7 +60,7 @@ export class Attachments {
     })
     return attachmentDto(attachment, this.rooms.now())
   }
-  async download(id: string, userId: string) {
+  async download(id: string, userId: string, ifNoneMatch?: string | null) {
     // Check metadata/ACL before materializing a potentially 10 MiB blob.
     // The caller holds the commit/ACL gate across both reads.
     const attachment = await this.rooms.db.attachment.findUnique({ where: { id }, select: { ...attachmentMetadataSelect, userId: true, message: { select: { deletedAt: true } } } })
@@ -53,8 +69,13 @@ export class Attachments {
     if (attachment.message?.deletedAt) return fail(404, 'NOT_FOUND', '附件不可用')
     if (!attachment.message && attachment.userId !== userId) return fail(403, 'FORBIDDEN', '附件尚未发布')
     if (attachmentExpired(attachment, new Date(this.rooms.now()))) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
+    // Bytes are immutable for an attachment ID until expiry purges them. Include
+    // representation metadata and the authenticated identity, never blob bytes.
+    const etag = `"${createHash('sha256').update(JSON.stringify(['attachment-v1', userId, attachment.id, attachment.createdAt.toISOString(), attachment.size, attachment.mimeType, attachment.filename])).digest('hex')}"`
+    const cacheHeaders = { 'Cache-Control': 'private, no-cache', ETag: etag, Vary: 'Cookie, X-Anyone-User-Id' }
+    if (matchesIfNoneMatch(ifNoneMatch, etag)) return new Response(null, { status: 304, headers: cacheHeaders })
     const content = await this.rooms.db.attachment.findUnique({ where: { id }, select: { bytes: true } })
     if (!content) return fail(404, 'NOT_FOUND', '附件不存在')
-    return new Response(new Uint8Array(content.bytes), { headers: { 'Content-Type': attachment.mimeType, 'Content-Length': String(attachment.size), 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, no-store', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}` } })
+    return new Response(new Uint8Array(content.bytes), { headers: { ...cacheHeaders, 'Content-Type': attachment.mimeType, 'Content-Length': String(attachment.size), 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}` } })
   }
 }

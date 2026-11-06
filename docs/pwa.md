@@ -22,7 +22,7 @@
 
 生产 Hono 白名单明确提供 `/sw.js`、`/manifest.webmanifest`、三个安装图标、专用 Apple touch 图标、SVG/ICO/16/32px favicon 与 `/offline.html`（具体路径见下表）。worker 位于根路径，作用域 `/`，JavaScript MIME，`Cache-Control: no-cache`；注册使用 `updateViaCache: none`。
 
-缓存名 `anyone-shell-v2`，只预缓存离线说明页与三个公开图标。不缓存首页 HTML、JS/CSS、任何 API/Socket.IO、聊天、会话、认证或附件响应；应用仍依赖网络和服务端 ACL。离线导航只给出真实离线说明，不重建已登录账户或伪造聊天。升级离线页/图标时递增缓存版本，激活后只删除本应用旧 shell 缓存，保留其他应用缓存。新 worker 等旧页面自然关闭后激活，不强制 `skipWaiting` / 刷新，避免丢草稿。
+Service Worker 的缓存名为 `anyone-shell-v2`，只预缓存离线说明页与三个公开图标。不向其 Cache Storage 写入首页 HTML、JS/CSS、任何 API/Socket.IO、聊天、会话、认证或附件响应；这与浏览器自身的 HTTP 缓存不同。已授权图片允许私有 HTTP 缓存，但每次复用必须在线检查权限并重新验证 ETag，详见 [图片重新验证](attachment-revalidation.md)。应用仍依赖网络和服务端 ACL。离线导航只给出真实离线说明，不重建已登录账户或伪造聊天。升级离线页/图标时递增缓存版本，激活后只删除本应用旧 shell 缓存，保留其他应用缓存。新 worker 等旧页面自然关闭后激活，不强制 `skipWaiting` / 刷新，避免丢草稿。
 
 ## 图标设计与再生成
 

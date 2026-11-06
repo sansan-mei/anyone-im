@@ -1,6 +1,6 @@
 import { Server as Engine } from '@socket.io/bun-engine'
 import { Server, type Socket } from 'socket.io'
-import { socketSendMessageSchema } from '@anyone-im/contracts'
+import { socketSendMessageSchema, roomSubscribeSchema } from '@anyone-im/contracts'
 import type { ClientToServerEvents, ServerToClientEvents, Result } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { ApiFailure, errorBody, fail, parse, sessionHash } from './security'
@@ -104,10 +104,11 @@ export function createRealtime(rooms: Rooms, session: (hash: string | null) => P
       })
     })
     socket.on('room:subscribe', (input, ack) => { void respond(ack, async () => {
-      if (!input || typeof input !== 'object' || Object.keys(input).some(k => k !== 'roomId' && k !== 'afterSeq') || typeof input.roomId !== 'string' || input.roomId.length < 1 || input.roomId.length > 64 || (input.afterSeq !== undefined && (!Number.isSafeInteger(input.afterSeq) || input.afterSeq < 0))) return fail(400, 'INVALID_INPUT', '订阅参数无效')
-      const page = await rooms.page(input.roomId, socket.data.userId, { afterSeq: input.afterSeq })
-      await add(socket, input.roomId)
-      return page
+      const query = parse(roomSubscribeSchema, input)
+      const page = await rooms.page(query.roomId, socket.data.userId, { afterSeq: query.afterSeq })
+      const changes = query.changeCursor ? rooms.changes.changes(query.roomId, query.changeCursor) : undefined
+      await add(socket, query.roomId)
+      return { ...page, ...(changes ? { changes } : {}) }
     }) })
     socket.on('disconnect', () => {
       clearTimeout(timers.get(socket.id)); timers.delete(socket.id)

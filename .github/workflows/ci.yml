@@ -17,6 +17,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Lightweight cache and synchronization regressions
+        run: node --test scripts/*.node.mjs
       - run: bun install --frozen-lockfile
       - run: bun run db:generate
         env:
