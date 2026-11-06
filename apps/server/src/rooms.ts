@@ -3,6 +3,7 @@ import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from '@anyone-im/con
 import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
 import { attachmentExpired, ATTACHMENT_TTL_MS } from './attachment-retention'
+import { ChangeJournal } from './change-journal'
 
 type Database = Prisma.TransactionClient
 // Never load image bytes for history, summaries, backfill or send acknowledgements.
@@ -16,6 +17,7 @@ export function messageDto(m: StoredMessage, now = Date.now()): MessageDTO {
   return { id: m.id, roomId: m.roomId, seq: m.seq, clientMessageId: m.clientMessageId, text: m.deletedAt ? '' : m.text, attachment: !m.deletedAt && m.attachment ? attachmentDto(m.attachment, now) : null, sender: userDto(m.sender), createdAt: m.createdAt.toISOString(), deletedAt: m.deletedAt?.toISOString() ?? null }
 }
 export class Rooms {
+  readonly changes = new ChangeJournal()
   online = (_roomId: string, _userId?: string): number => 0
   constructor(readonly db: PrismaClient, readonly now = () => Date.now()) {}
   async member(roomId: string, userId: string, tx: Database = this.db, owner = false) {
@@ -75,7 +77,8 @@ export class Rooms {
     const results = await this.db.message.findMany({ where: { roomId, ...(before !== undefined ? { seq: { lt: before } } : after !== undefined ? { seq: { gt: after } } : {}) }, orderBy: { seq: forward ? 'asc' : 'desc' }, take: limit + 1, include: messageInclude })
     const messages = results.slice(0, limit)
     if (!forward) messages.reverse()
-    return { messages: messages.map(message => messageDto(message, this.now())), hasMore: results.length > limit }
+    // Caller holds the application gate: rows and cursor describe one authoritative point.
+    return { messages: messages.map(message => messageDto(message, this.now())), hasMore: results.length > limit, changeCursor: this.changes.cursor() }
   }
   async send(roomId: string, userId: string, sessionId: string, input: SendMessageInput) {
     return this.db.$transaction(async tx => {
@@ -109,7 +112,7 @@ export class Rooms {
     })
   }
   async deleteMessage(messageId: string, userId: string) {
-    return this.db.$transaction(async tx => {
+    const deletion = await this.db.$transaction(async tx => {
       const message = await tx.message.findUnique({ where: { id: messageId } })
       if (!message) return fail(404, 'NOT_FOUND', '消息不存在')
       const m = await this.member(message.roomId, userId, tx)
@@ -117,6 +120,9 @@ export class Rooms {
       if (!message.deletedAt) await tx.message.update({ where: { id: messageId }, data: { deletedAt: new Date() } })
       return { roomId: message.roomId, messageId: message.id, seq: message.seq }
     })
+    // A rollback must never publish a tombstone. Still inside the caller's gate.
+    this.changes.record(deletion)
+    return deletion
   }
   async createInvite(roomId: string, userId: string) {
     await this.member(roomId, userId, this.db, true)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User, RoomSummary } from '@anyone-im/contracts'
 import { LayoutGroup, motion } from 'motion/react'
 import { X, ArrowUpRight, Hash, LockKeyhole, MessageSquare, Plus, Search, Settings2, Ellipsis, ArrowLeft, Compass } from 'lucide-react'
@@ -14,9 +14,13 @@ import { RoomDetails } from './RoomDetails'
 import { Discover, InviteJoin } from './JoinRooms'
 import { useRealtime } from './useRealtime'
 import { useMessageNotifications } from './useMessageNotifications'
+import { createRoomRequest } from './roomRequests'
 import type { usePwaInstall } from './PwaSettings'
-export function Workspace({ install, user, setUser }: { install: ReturnType<typeof usePwaInstall>; user: User; setUser: (u: User | null) => void }) {
+export function Workspace({ install, user, setUser, paused = false }: { install: ReturnType<typeof usePwaInstall>; user: User; setUser: (u: User | null) => void; paused?: boolean }) {
   const api = useApi()
+  // A hold/resume boundary starts a new pending-work generation. Never join a
+  // pre-hold response that the session API must reject, even after resuming.
+  const requestRooms = useMemo(() => createRoomRequest(() => api<{ rooms: RoomSummary[] }>('/rooms')), [api, paused])
   const [rooms, setRooms] = useState<RoomSummary[]>([]), [active, setActive] = useState(''), [error, setError] = useState('')
   const [roomsLoading, setRoomsLoading] = useState(true)
   const [profileOpen, setProfileOpen] = useState(false), [createOpen, setCreateOpen] = useState(false), [detailsOpen, setDetailsOpen] = useState(false)
@@ -26,14 +30,15 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const searchInput = useRef<HTMLInputElement>(null)
   const removedIds = useRef(new Set<string>())
+  const initialized = useRef(false)
   const consumeRoomLink = () => { const url = new URL(location.href); url.searchParams.delete('room'); history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`); setJoinRoomId('') }
   const onJoined = (r: RoomSummary) => { removedIds.current.delete(r.id); state.allow(r.id); setRooms(old => [...old.filter(x => x.id !== r.id), r]); setActive(r.id); if (new URLSearchParams(location.search).get('room') === r.id) consumeRoomLink() }
   const closeInvite = useCallback(() => { setInviteCode(''); history.replaceState(null, '', '/') }, [])
   const state = useMessages(user, active)
   const notifications = useMessageNotifications(rooms)
   const { baseline } = notifications
-  const refresh = useCallback(async (historyBaseline = false, isCurrent: () => boolean = () => true) => { try { const r = await api<{rooms: RoomSummary[]}>('/rooms'); if (!isCurrent()) return false; const joined = r.rooms.filter(x => !removedIds.current.has(x.id)); if (historyBaseline) baseline(joined); setRooms(old => joined.map(x => { const cached = old.find(y => y.id === x.id); return cached ? { ...x, lastReadSeq: Math.max(cached.lastReadSeq, x.lastReadSeq), lastSeq: Math.max(cached.lastSeq, x.lastSeq), lastMessage: cached.lastSeq > x.lastSeq ? cached.lastMessage : x.lastMessage } : x })); setError(''); return true } catch(e) { if (isCurrent()) setError(errorText(e)); return false } }, [api, baseline])
-  const realtime = useRealtime({ active, state, refresh,
+  const refresh = useCallback(async (historyBaseline = false, isCurrent: () => boolean = () => true) => { try { const r = await requestRooms(); if (!isCurrent() || !api.isCurrent()) return false; const joined = r.rooms.filter(x => !removedIds.current.has(x.id)); if (historyBaseline) baseline(joined); setRooms(old => joined.map(x => { const cached = old.find(y => y.id === x.id); return cached ? { ...x, lastReadSeq: Math.max(cached.lastReadSeq, x.lastReadSeq), lastSeq: Math.max(cached.lastSeq, x.lastSeq), lastMessage: cached.lastSeq > x.lastSeq ? cached.lastMessage : x.lastMessage } : x })); setError(''); return true } catch(e) { if (isCurrent() && api.isCurrent()) setError(errorText(e)); return false } }, [api, baseline, requestRooms])
+  const realtime = useRealtime({ active, state, refresh, paused,
     onMessage: m => { notifications.notify(m); setRooms(old => old.map(r => r.id === m.roomId && m.seq >= r.lastSeq ? { ...r, lastSeq: m.seq, lastMessage: m, updatedAt: m.createdAt } : r)) },
     onDeleted: e => setRooms(old => old.map(r => r.id === e.roomId && r.lastMessage?.id === e.messageId ? { ...r, lastMessage: null } : r)),
     onPresence: e => setRooms(old => old.map(r => r.id === e.roomId ? { ...r, onlineCount: e.count } : r)),
@@ -41,17 +46,22 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
   })
   useEffect(() => {
     let current = true
-    api<{ rooms: RoomSummary[] }>('/rooms').then(r => {
+    // Retry interrupted startup using this resume generation's shared room flight.
+    // Successful initialization is one-shot: never reset an existing room/draft.
+    if (paused || initialized.current) return
+    setRoomsLoading(true)
+    requestRooms().then(r => {
       if (!current || !api.isCurrent()) return
+      initialized.current = true
       setRooms(r.rooms)
       const requested = new URLSearchParams(location.search).get('room')
       const isMember = r.rooms.some(room => room.id === requested)
       setActive(isMember ? requested! : matchMedia('(max-width:700px)').matches ? '' : r.rooms[0]?.id ?? '')
       if (requested && isMember) consumeRoomLink()
       else if (requested) { setJoinRoomId(requested); setDiscoverOpen(true) }
-    }).catch(e => { if (current) setError(errorText(e)) }).finally(() => { if (current) setRoomsLoading(false) })
+    }).catch(e => { if (current && api.isCurrent()) setError(errorText(e)) }).finally(() => { if (current) setRoomsLoading(false) })
     return () => { current = false }
-  }, [api])
+  }, [api, paused, requestRooms])
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const clicked = (event: MessageEvent) => {
@@ -98,12 +108,12 @@ export function Workspace({ install, user, setUser }: { install: ReturnType<type
     <section data-testid="chat-panel" className="conversation" aria-label="会话">{room ? <>
       <header className="chat-header"><button data-testid="mobile-back" className="icon mobile-back" aria-label="返回会话列表" onClick={() => { setActive(''); setDetailsOpen(false) }}><ArrowLeft size={21}/></button><span className="room-icon small">{room.visibility === 'private' ? <LockKeyhole size={19}/> : <Hash size={21}/>}</span><div className="chat-heading"><h2>{room.name}</h2><p><span className={`presence-dot ${realtime.connection}`}/>{room.memberCount} 位成员 · {room.visibility === 'private' ? '私密房间' : '公开房间'}</p></div><button data-testid="room-actions" className="icon" aria-label="房间详情" onClick={e => { rememberFocus(e); setDetailsOpen(true) }}><Ellipsis size={22}/></button></header>
       {realtime.connection !== 'connected' && <div className="offline-banner" role="status"><span>{realtime.connection === 'connecting' ? '正在建立实时连接…' : '连接中断，未发送消息会保留在本机'}</span><button onClick={realtime.reconnect}>重连</button></div>}
-      <Chat key={room.id} user={user} room={room} state={state} visible={!profileOpen && !detailsOpen && !createOpen && !discoverOpen && !inviteCode} onRead={seq => setRooms(old => old.map(r => r.id === room.id ? { ...r, lastReadSeq: Math.max(r.lastReadSeq, seq) } : r))}/>
+      <Chat key={room.id} user={user} room={room} state={state} visible={!paused && !profileOpen && !detailsOpen && !createOpen && !discoverOpen && !inviteCode} onRead={seq => setRooms(old => old.map(r => r.id === room.id ? { ...r, lastReadSeq: Math.max(r.lastReadSeq, seq) } : r))}/>
     </> : <div className="conversation-empty"><MessageSquare size={30}/><h2>选择一处，开始对话</h2><p>每一场好对话，都从一句你好开始。</p><div className="empty-actions"><button className="primary" onClick={e => { rememberFocus(e); setDiscoverOpen(true) }}>探索房间<ArrowUpRight size={16}/></button><button className="secondary" onClick={e => { rememberFocus(e); setCreateOpen(true) }}><Plus size={16}/>创建房间</button></div></div>}</section>
-    <Profile install={install} notifications={notifications} user={user} setUser={setUser} open={profileOpen} onOpenChange={setProfileOpen}/>
-    <CreateRoom open={createOpen} onOpenChange={setCreateOpen} onCreated={onJoined}/>
-    <Discover open={discoverOpen} onOpenChange={setDiscoverOpen} initialRoomId={joinRoomId} joinedIds={rooms.map(r => r.id)} onJoined={onJoined}/>
-    {inviteCode && <InviteJoin code={inviteCode} onClose={closeInvite} onJoined={onJoined}/>}
-    {room && <RoomDetails key={room.id} room={room} user={user} open={detailsOpen} onOpenChange={setDetailsOpen} onChanged={refresh} onLeft={() => { removedIds.current.add(room.id); state.purge(room.id); setRooms(old => old.filter(x => x.id !== room.id)); setActive('') }}/>}
+    <Profile install={install} notifications={notifications} user={user} setUser={setUser} open={!paused && profileOpen} onOpenChange={setProfileOpen}/>
+    <CreateRoom open={!paused && createOpen} onOpenChange={setCreateOpen} onCreated={onJoined}/>
+    <Discover open={!paused && discoverOpen} onOpenChange={setDiscoverOpen} initialRoomId={joinRoomId} joinedIds={rooms.map(r => r.id)} onJoined={onJoined}/>
+    {!paused && inviteCode && <InviteJoin code={inviteCode} onClose={closeInvite} onJoined={onJoined}/>}
+    {room && <RoomDetails key={room.id} room={room} user={user} open={!paused && detailsOpen} onOpenChange={setDetailsOpen} onChanged={refresh} onLeft={() => { removedIds.current.add(room.id); state.purge(room.id); setRooms(old => old.filter(x => x.id !== room.id)); setActive('') }}/>}
   </main>
 }

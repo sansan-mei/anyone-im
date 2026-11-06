@@ -19,26 +19,35 @@ export const publicApi: Request = (path, method, body, signal) => {
   if (!/^\/(session|auth\/(guest|register|login))$/.test(path)) throw new Error('Protected request requires a session context')
   return request(path, method, body, signal)
 }
-export type SessionApi = Request & { ownerId: string; resource: (path: string, signal?: AbortSignal) => Promise<Blob>; assertCurrent: () => void; isCurrent: () => boolean; invalidate: () => void; dispose: () => void }
+export type SessionApi = Request & { ownerId: string; resource: (path: string, signal?: AbortSignal) => Promise<Blob>; assertCurrent: () => void; isCurrent: () => boolean; onResume: (listener: () => void) => () => void; hold: () => void; resume: () => void; invalidate: () => void; dispose: () => void }
 export function createSessionApi(ownerId: string, onChanged: () => void): SessionApi {
-  let current = true
+  let current = true, held = false, generation = 0
+  const resumeListeners = new Set<() => void>()
+  const onResume = (listener: () => void) => { if (current) resumeListeners.add(listener); return () => { resumeListeners.delete(listener) } }
   const failure = () => new ApiFailure('SESSION_CHANGED', SESSION_CHANGED_TEXT, 409)
-  const assertCurrent = () => { if (!current) throw failure() }
-  const invalidate = () => { if (current) { current = false; onChanged() } }
+  const unverified = () => new ApiFailure('SESSION_UNVERIFIED', '会话身份正在重新验证，请稍后重试。', 503)
+  const assertCurrent = () => { if (!current) throw failure(); if (held) throw unverified() }
+  const hold = () => { if (current && !held) { held = true; generation++ } }
+  const resume = () => { if (current && held) { held = false; generation++; resumeListeners.forEach(listener => listener()) } }
+  const invalidate = () => { if (current) { current = false; generation++; resumeListeners.clear(); onChanged() } }
   const perform = async <T>(operation: () => Promise<T>): Promise<T> => {
     assertCurrent()
+    const operationGeneration = generation
+    const assertGeneration = () => { assertCurrent(); if (generation !== operationGeneration) throw unverified() }
     try {
       const data = await operation()
-      // A late response must never populate a replacement workspace or finish an old action.
-      assertCurrent()
+      // Holding and then resuming does not authorize results from the old request generation.
+      assertGeneration()
       return data
     } catch(e) {
+      // An obsolete 401/409 must not invalidate a newly revalidated workspace.
+      assertGeneration()
       if (e instanceof ApiFailure && (e.code === 'SESSION_CHANGED' || e.status === 401)) invalidate()
       throw e
     }
   }
   const bound: Request = (path, method, body, signal) => perform(() => request(path, method, body, signal, ownerId))
   const resource = (path: string, signal?: AbortSignal) => perform(() => request<Blob>(path, 'GET', undefined, signal, ownerId, true))
-  return Object.assign(bound, { ownerId, resource, assertCurrent, isCurrent: () => current, invalidate, dispose: () => { current = false } })
+  return Object.assign(bound, { ownerId, resource, assertCurrent, isCurrent: () => current && !held, onResume, hold, resume, invalidate, dispose: () => { current = false; generation++; resumeListeners.clear() } })
 }
 export const errorText = (e: unknown) => e instanceof Error ? (e instanceof TypeError ? '网络连接中断，请检查网络后重试' : e.message) : '操作未完成，请重试'

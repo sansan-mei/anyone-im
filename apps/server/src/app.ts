@@ -198,7 +198,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
   })
   app.get('/api/attachments/:id', async c => gate(async () => {
     const s = await auth(c.req.raw)
-    return attachments.download(c.req.param('id'), s.userId)
+    return attachments.download(c.req.param('id'), s.userId, c.req.header('If-None-Match'))
   }))
   const realtime = createRealtime(rooms, session, gate, checkOrigin, rateLimit)
   cleanupRealtime = realtime.close

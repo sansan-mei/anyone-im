@@ -3,38 +3,40 @@ import type { Attachment, Message, MessagePage, SendMessageInput, User } from '@
 import { DEFAULT_MESSAGE_PAGE_SIZE } from '@anyone-im/contracts'
 import { errorText } from './api'
 import { useApi } from './SessionContext'
+import { HistoryCache, type HistoryEntry } from './history-cache'
 export interface Outgoing { roomId: string; userId: string; input: SendMessageInput; attachment?: Attachment; state: 'sending' | 'failed'; error?: string }
 export function useMessages(user: User, roomId: string) {
   const api = useApi()
-  const messagesRef = useRef<Record<string, Message[]>>({})
-  const initialCursors = useRef<Record<string, number>>({})
-  const [messages, setMessages] = useState<Record<string, Message[]>>({})
-  const [loadingIds, setLoadingIds] = useState<Record<string, boolean>>({}), [olderLoading, setOlderLoading] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string>>({}), [storageError, setStorageError] = useState('')
-  const [hasOlder, setHasOlder] = useState<Record<string, boolean>>({})
-  const [deleted, setDeleted] = useState<Set<string>>(new Set())
-  const removed = useRef(new Set<string>()), initialized = useRef(new Set<string>()), requests = useRef(new Map<string, Promise<void>>())
+  const cacheRef = useRef<HistoryCache | null>(null)
+  if (!cacheRef.current) cacheRef.current = new HistoryCache()
+  const history = cacheRef.current, active = useRef(roomId)
+  active.current = roomId
+  const [, render] = useState(0), [storageError, setStorageError] = useState('')
+  const publish = useCallback(() => { if (api.isCurrent()) render(n => n + 1) }, [])
+  const requests = useRef(new WeakMap<HistoryEntry, Promise<void>>())
   const [outbox, setOutbox] = useState<Outgoing[]>(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(`anyone.outbox.${user.id}`) || '[]')
       return Array.isArray(saved) ? saved.filter((x: Outgoing) => x.userId === user.id && typeof x.roomId === 'string' && typeof x.input?.text === 'string' && /^[0-9a-f-]{36}$/i.test(x.input?.clientMessageId)).map((x: Outgoing) => ({ ...x, state: 'failed', error: '发送未确认，请重试' })) : []
     } catch { return [] }
   })
-  const merge = useCallback((id: string, incoming: Message[]) => {
-    if (!api.isCurrent() || removed.current.has(id)) return
-    const bySeq = new Map((messagesRef.current[id] || []).map(m => [m.seq, m]))
-    incoming.filter(m => m.roomId === id).forEach(m => { const old = bySeq.get(m.seq); bySeq.set(m.seq, old?.deletedAt && !m.deletedAt ? old : m) })
-    messagesRef.current = { ...messagesRef.current, [id]: [...bySeq.values()].sort((a,b) => a.seq - b.seq) }
-    setMessages(messagesRef.current)
+  const merge = useCallback((id: string, incoming: Message[], entry: HistoryEntry | null = history.peek(id) ?? null) => {
+    if (!api.isCurrent()) return
+    // Unvisited rooms do not allocate history, initialized flags, or sync cursors.
+    if (entry && history.current(entry)) { history.merge(entry, incoming); publish() }
     setOutbox(old => old.filter(o => !incoming.some(m => m.roomId === o.roomId && m.sender.id === o.userId && m.clientMessageId === o.input.clientMessageId)))
   }, [])
   useEffect(() => { try { localStorage.setItem(`anyone.outbox.${user.id}`, JSON.stringify(outbox.map(o => ({ ...o, state: 'failed', error: o.error || '发送未确认，请重试' })))) } catch { setStorageError('本地存储不可用，未发送消息无法跨刷新保留；请勿关闭页面') } }, [outbox, user.id])
   const inFlight = useRef(new Set<string>())
   const retry = useCallback(async (item: Outgoing) => {
     if (item.userId !== api.ownerId || inFlight.current.has(item.input.clientMessageId)) return
+    // A delayed POST is not validation of a replacement entry or a cold baseline.
+    const cached = history.peek(item.roomId)
+    const entry = cached?.initialized ? cached : null
+    const pageGeneration = entry?.pageGeneration
     inFlight.current.add(item.input.clientMessageId)
     setOutbox(old => old.map(o => o.input.clientMessageId === item.input.clientMessageId ? { ...o, state: 'sending', error: undefined } : o))
-    try { const message = await api<Message>(`/rooms/${encodeURIComponent(item.roomId)}/messages`, 'POST', item.input); merge(item.roomId, [message]) }
+    try { const message = await api<Message>(`/rooms/${encodeURIComponent(item.roomId)}/messages`, 'POST', item.input); merge(item.roomId, [message], entry && entry.pageGeneration === pageGeneration && !entry.recovering ? entry : null) }
     catch(e) { setOutbox(old => old.map(o => o.input.clientMessageId === item.input.clientMessageId ? { ...o, state: 'failed', error: errorText(e) } : o)) }
     finally { inFlight.current.delete(item.input.clientMessageId) }
   }, [merge])
@@ -43,43 +45,83 @@ export function useMessages(user: User, roomId: string) {
     setOutbox(old => [...old, item]); void retry(item)
   }, [roomId, user.id, retry])
   const loadInitial = useCallback(async (id: string, force = false) => {
-    if (!id || (initialized.current.has(id) && !force)) return
-    if (requests.current.has(id)) return requests.current.get(id)
-    setLoadingIds(old => ({ ...old, [id]: true })); setErrors(old => ({...old, [id]: ''}))
+    if (!id || !api.isCurrent() || id !== active.current) return
+    if (force) history.drop(id)
+    const entry = history.activate(id)
+    if (entry.initialized) return
+    if (requests.current.has(entry)) return requests.current.get(entry)
+    entry.loading = true; entry.error = ''; publish()
     const promise = (async () => {
-      try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?limit=${DEFAULT_MESSAGE_PAGE_SIZE}`); initialCursors.current[id] = page.messages.at(-1)?.seq || 0; merge(id, page.messages); setHasOlder(old => ({ ...old, [id]: page.hasMore })); initialized.current.add(id) }
-      catch(e) { setErrors(old => ({ ...old, [id]: errorText(e) })) }
-      finally { setLoadingIds(old => ({...old, [id]: false})); requests.current.delete(id) }
+      try {
+        const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?limit=${DEFAULT_MESSAGE_PAGE_SIZE}`, 'GET', undefined, entry.controller.signal)
+        if (api.isCurrent()) history.initialize(entry, page)
+      } catch(e) { if (api.isCurrent() && history.current(entry)) entry.error = errorText(e) }
+      finally { entry.loading = false; requests.current.delete(entry); publish() }
     })()
-    requests.current.set(id, promise); return promise
-  }, [merge])
+    requests.current.set(entry, promise)
+    return promise
+  }, [])
   useEffect(() => { if (roomId) void loadInitial(roomId) }, [roomId, loadInitial])
-  const loadOlder = useCallback(async () => {
-    if (olderLoading || !roomId) return
-    const before = messagesRef.current[roomId]?.[0]?.seq
-    if (!before) return
-    setOlderLoading(true); setErrors(old => ({...old, [roomId]: ''}))
-    try { const page = await api<MessagePage>(`/rooms/${encodeURIComponent(roomId)}/messages?beforeSeq=${before}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`); merge(roomId, page.messages); setHasOlder(old => ({...old, [roomId]: page.hasMore})) }
-    catch(e) { setErrors(old => ({...old, [roomId]: errorText(e)})) }
-    finally { setOlderLoading(false) }
-  }, [roomId, olderLoading, merge])
-  const tombstone = useCallback((id: string) => setDeleted(old => new Set([...old, id])), [])
-  const refreshCached = useCallback(async (id: string) => {
-    const cached = messagesRef.current[id]
-    if (!cached?.length) return
-    const end = cached.at(-1)!.seq
-    let cursor = cached[0].seq - 1
-    // Deletions retain old sequence numbers, so afterSeq backfill alone cannot discover missed tombstones.
-    while (cursor < end && !removed.current.has(id)) {
-      const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?afterSeq=${cursor}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`)
-      merge(id, page.messages)
-      const next = page.messages.at(-1)?.seq || cursor
-      if (!page.hasMore || next <= cursor) break
-      cursor = next
+  const loadPage = useCallback(async (direction: 'older' | 'newer') => {
+    const entry = history.peek(active.current)
+    if (!entry?.initialized || entry.paging || entry.loading || entry.recovering) return
+    const seq = direction === 'older' ? entry.messages[0]?.seq : entry.messages.at(-1)?.seq
+    if (!seq) return
+    const generation = entry.pageGeneration
+    const current = () => api.isCurrent() && history.current(entry) && entry.pageGeneration === generation
+    entry.paging = true; entry.error = ''; publish()
+    try {
+      const page = await api<MessagePage>(`/rooms/${encodeURIComponent(entry.roomId)}/messages?${direction === 'older' ? 'beforeSeq' : 'afterSeq'}=${seq}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`, 'GET', undefined, entry.controller.signal)
+      if (current()) history.page(entry, page, direction)
+    } catch(e) { if (current()) entry.error = errorText(e) }
+    finally { if (current()) entry.paging = false; publish() }
+  }, [])
+  const tombstone = useCallback((messageId: string, id?: string) => {
+    for (const entry of history.entries.values()) {
+      if (id ? entry.roomId === id : entry.messages.some(m => m.id === messageId)) history.tombstone(entry, messageId)
     }
-  }, [merge])
-  const purge = useCallback((id: string) => { removed.current.add(id); const next = { ...messagesRef.current }; delete next[id]; messagesRef.current = next; setMessages(next); initialized.current.delete(id) }, [])
-  const allow = useCallback((id: string) => { removed.current.delete(id) }, [])
-  const latest = useCallback((id: string) => messagesRef.current[id]?.at(-1)?.seq || 0, [])
-  return { messages: messages[roomId] || [], loading: !!loadingIds[roomId], error: errors[roomId] || storageError, outbox: outbox.filter(o => o.roomId === roomId), send, retry, merge, hasMore: !!hasOlder[roomId], olderLoading, loadOlder, loadInitial, refreshCached, deleted, tombstone, purge, allow, latest, initialCursor: (id: string) => initialCursors.current[id] || 0, setRoomError: (id: string, error: string) => setErrors(old => ({ ...old, [id]: error })) }
+    publish()
+    // Bounded tombstone overflow drops the entry, also invalidating every pending page.
+    if (active.current && !history.peek(active.current)) void loadInitial(active.current)
+  }, [loadInitial])
+  const refreshCached = useCallback(async (id: string, expected = history.peek(id)) => {
+    if (!expected || !history.current(expected)) return
+    if (expected.recovering) throw new Error('历史恢复进行中，请重试同步')
+    // Invalidate pages/POST payloads captured before this scan. New pages may only
+    // start after it: their server snapshot is then covered by the final delta.
+    expected.pageGeneration++; expected.recovering = true; expected.paging = false
+    publish()
+    try {
+      const cached = [...expected.messages]
+      const end = cached.at(-1)?.seq ?? 0
+      let index = 0
+      // Only restart/overflow/legacy fallback scans; skip gaps, and bound work by cached rows.
+      while (index < cached.length && history.current(expected) && api.isCurrent()) {
+        const cursor = cached[index].seq - 1
+        const page = await api<MessagePage>(`/rooms/${encodeURIComponent(id)}/messages?afterSeq=${cursor}&limit=${DEFAULT_MESSAGE_PAGE_SIZE}`, 'GET', undefined, expected.controller.signal)
+        if (!api.isCurrent() || !history.current(expected)) return
+        history.merge(expected, page.messages.filter(m => m.seq <= end)); publish()
+        const next = page.messages.at(-1)?.seq ?? cursor
+        if (next <= cursor) throw new Error('历史分页未前进，请重试同步')
+        while (index < cached.length && cached[index].seq <= next) index++
+      }
+    } finally { expected.recovering = false; publish() }
+  }, [])
+  const purge = useCallback((id: string) => { history.drop(id); publish() }, [])
+  const suspendHistory = useCallback(() => { history.suspend(); render(n => n + 1) }, [])
+  const allow = useCallback((_id: string) => {}, [])
+  const latest = useCallback((id: string) => history.peek(id)?.messages.at(-1)?.seq || 0, [])
+  const entry = history.peek(roomId)
+  const deleted = new Set<string>()
+  for (const item of history.entries.values()) for (const id of item.tombstones) deleted.add(id)
+  return {
+    messages: entry?.messages || [], loading: !!entry?.loading, error: entry?.error || storageError,
+    outbox: outbox.filter(o => o.roomId === roomId), send, retry, merge,
+    hasMore: !!entry?.hasOlder, hasNewer: !!entry?.hasNewer, olderLoading: !!entry?.paging,
+    loadOlder: () => loadPage('older'), loadNewer: () => loadPage('newer'), loadLatest: () => loadInitial(roomId, true),
+    loadInitial, refreshCached, deleted, tombstone, purge, allow, latest,
+    history, cacheKey: entry, publish, suspendHistory,
+    initialCursor: (id: string) => history.peek(id)?.contiguous || 0,
+    setRoomError: (id: string, error: string) => { const entry = history.peek(id); if (api.isCurrent() && entry) { entry.error = error; publish() } }
+  }
 }
