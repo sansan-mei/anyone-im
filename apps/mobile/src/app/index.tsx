@@ -137,6 +137,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
+  button: { marginTop: 16, backgroundColor: '#1a73e8', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
   roomList: { flex: 1 },
   roomItem: {
