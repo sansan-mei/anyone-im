@@ -484,3 +484,7 @@
     padding-inline: 12px;
   }
 }
+
+/* Six-digit room codes are typed by hand on unfamiliar computers. */
+.room-code-input { font-variant-numeric: tabular-nums; letter-spacing: .3em; font-size: 1.15rem; font-weight: 600; }
+.room-code { font-variant-numeric: tabular-nums; letter-spacing: .08em; font-weight: 650; }
