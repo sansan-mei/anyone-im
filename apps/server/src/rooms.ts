@@ -1,11 +1,21 @@
 import type { Message as MessageDTO, RoomSummary, Attachment as AttachmentDTO, SendMessageInput, MessagePage } from '@anyone-im/contracts'
-import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from '@anyone-im/contracts'
+import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, SHORT_ROOM_TTL_MS, LONG_ROOM_IDLE_MS, type RoomLifetime } from '@anyone-im/contracts'
+import { randomInt } from 'node:crypto'
 import { PrismaClient, Prisma } from '../generated/client'
 import { fail, hashToken, randomToken, userDto } from './security'
 import { attachmentExpired, ATTACHMENT_TTL_MS } from './attachment-retention'
 import { ChangeJournal } from './change-journal'
 
 type Database = Prisma.TransactionClient
+export const LOBBY_ROOM_ID = 'lobby'
+const lifecycleSelect = { id: true, lifetime: true, expiresAt: true, activeAt: true } as const
+export const randomRoomCode = () => randomInt(0, 1000000).toString().padStart(6, '0')
+/** The instant a room closes: fixed for short rooms, sliding with activity for long rooms. */
+export function roomClosesAt(room: { id: string; lifetime: string; expiresAt: Date | null; activeAt: Date }): Date | null {
+  if (room.id === LOBBY_ROOM_ID) return null
+  if (room.lifetime === 'short') return room.expiresAt ?? new Date(room.activeAt.getTime() + SHORT_ROOM_TTL_MS)
+  return new Date(room.activeAt.getTime() + LONG_ROOM_IDLE_MS)
+}
 // Never load image bytes for history, summaries, backfill or send acknowledgements.
 export const attachmentMetadataSelect = { id: true, roomId: true, filename: true, mimeType: true, size: true, createdAt: true, expiredAt: true } as const
 export const messageInclude = { sender: true, attachment: { select: attachmentMetadataSelect } } as const
@@ -19,29 +29,79 @@ export function messageDto(m: StoredMessage, now = Date.now()): MessageDTO {
 export class Rooms {
   readonly changes = new ChangeJournal()
   online = (_roomId: string, _userId?: string): number => 0
-  constructor(readonly db: PrismaClient, readonly now = () => Date.now()) {}
+  readonly db: PrismaClient
+  readonly now: () => number
+  /** Room lifecycle clock, separate from the attachment clock so each can be tested alone. */
+  readonly roomNow: () => number
+  readonly codes: () => string
+  // Plain assignments (no parameter properties) keep this file strip-only compatible.
+  constructor(db: PrismaClient, now = () => Date.now(), roomNow = () => Date.now(), codes = randomRoomCode) {
+    this.db = db; this.now = now; this.roomNow = roomNow; this.codes = codes
+  }
   async member(roomId: string, userId: string, tx: Database = this.db, owner = false) {
-    const m = await tx.membership.findUnique({ where: { roomId_userId: { roomId, userId } } })
+    const m = await tx.membership.findUnique({ where: { roomId_userId: { roomId, userId } }, include: { room: { select: lifecycleSelect } } })
     if (!m?.active || m.banned || (owner && m.role !== 'owner')) return fail(403, 'FORBIDDEN', '无权访问此聊天室')
+    // A closed room is unusable immediately, before the sweep erases it.
+    if (this.closed(m.room)) return fail(404, 'ROOM_CLOSED', '房间已关闭')
     return m
+  }
+  closed(room: { id: string; lifetime: string; expiresAt: Date | null; activeAt: Date }) {
+    const at = roomClosesAt(room)
+    return at !== null && at.getTime() <= this.roomNow()
+  }
+  /** Assign codes to legacy rooms, then erase closed rooms with all their history. */
+  async closeExpired(batch = 100) {
+    const legacy = await this.db.room.findMany({ where: { code: null }, select: { id: true }, take: batch })
+    for (const { id } of legacy) await this.withUniqueCode(code => this.db.room.updateMany({ where: { id, code: null }, data: { code } }))
+    const now = this.roomNow()
+    const candidates = await this.db.room.findMany({
+      where: { id: { not: LOBBY_ROOM_ID }, OR: [{ lifetime: 'short', expiresAt: { lte: new Date(now) } }, { lifetime: { not: 'short' }, activeAt: { lte: new Date(now - LONG_ROOM_IDLE_MS) } }] },
+      select: { ...lifecycleSelect, memberships: { select: { userId: true } } }, take: batch
+    })
+    const closed: Array<{ roomId: string; userIds: string[] }> = []
+    for (const room of candidates) {
+      if (!this.closed(room)) continue
+      if (await this.destroy(room.id)) closed.push({ roomId: room.id, userIds: room.memberships.map(m => m.userId) })
+    }
+    return closed
+  }
+  /** Delete a room row; cascades erase memberships, messages, invites and image bytes. */
+  async destroy(roomId: string) {
+    if (roomId === LOBBY_ROOM_ID) return false
+    return this.db.$transaction(async tx => {
+      await tx.message.deleteMany({ where: { roomId } })
+      await tx.attachment.deleteMany({ where: { roomId } })
+      return (await tx.room.deleteMany({ where: { id: roomId } })).count > 0
+    })
   }
   async summary(roomId: string, userId: string): Promise<RoomSummary> {
     const room = await this.db.room.findUnique({ where: { id: roomId }, include: { memberships: { where: { active: true, banned: false } }, messages: { orderBy: { seq: 'desc' }, take: 1, include: messageInclude } } })
     if (!room) return fail(404, 'NOT_FOUND', '聊天室不存在')
     const m = room.memberships.find(m => m.userId === userId)
     if (!m && room.visibility !== 'public') return fail(403, 'FORBIDDEN', '无权访问此聊天室')
-    return { id: room.id, name: room.name, description: room.description, visibility: room.visibility as 'private' | 'public', role: m?.role === 'owner' ? 'owner' : 'member', memberCount: room.memberships.length, onlineCount: this.online(roomId), lastSeq: room.lastSeq, lastReadSeq: m?.lastReadSeq ?? 0, lastMessage: m && room.messages[0] ? messageDto(room.messages[0], this.now()) : null, updatedAt: room.updatedAt.toISOString() }
+    return { id: room.id, name: room.name, description: room.description, visibility: room.visibility as 'private' | 'public', code: room.code, lifetime: room.lifetime as RoomLifetime, expiresAt: roomClosesAt(room)?.toISOString() ?? null, role: m?.role === 'owner' ? 'owner' : 'member', memberCount: room.memberships.length, onlineCount: this.online(roomId), lastSeq: room.lastSeq, lastReadSeq: m?.lastReadSeq ?? 0, lastMessage: m && room.messages[0] ? messageDto(room.messages[0], this.now()) : null, updatedAt: room.updatedAt.toISOString() }
   }
-  async create(userId: string, input: { name: string; description: string; visibility: string; passwordHash?: string }) {
-    const room = await this.db.room.create({ data: { ...input, memberships: { create: { userId, role: 'owner' } } } })
+  async create(userId: string, input: { name: string; description: string; visibility: string; lifetime: RoomLifetime; passwordHash?: string }) {
+    const now = this.roomNow()
+    const data = { ...input, activeAt: new Date(now), expiresAt: input.lifetime === 'short' ? new Date(now + SHORT_ROOM_TTL_MS) : null, memberships: { create: { userId, role: 'owner' } } }
+    const room = await this.withUniqueCode(code => this.db.room.create({ data: { ...data, code } }))
     return this.summary(room.id, userId)
+  }
+  /** Retry random codes on unique-index collisions; a full code space fails closed. */
+  async withUniqueCode<T>(write: (code: string) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try { return await write(this.codes()) } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error
+      }
+    }
+    return fail(503, 'ROOM_CODES_EXHAUSTED', '暂时无法分配房间码，请稍后重试')
   }
   async join(roomId: string, userId: string, inviteCode?: string, verifiedPasswordHash?: string) {
     await this.db.$transaction(async tx => {
       const room = await tx.room.findUnique({ where: { id: roomId } })
       // Recheck the exact hash verified outside the write gate. A concurrent
       // password rotation must not authorize entry with the previous password.
-      if (!room || (!inviteCode && room.visibility !== 'public' && (!verifiedPasswordHash || room.passwordHash !== verifiedPasswordHash))) return fail(404, 'NOT_FOUND', '聊天室不存在')
+      if (!room || this.closed(room) || (!inviteCode && room.visibility !== 'public' && (!verifiedPasswordHash || room.passwordHash !== verifiedPasswordHash))) return fail(404, 'NOT_FOUND', '聊天室不存在')
       // A write lock serializes joins and room ACL mutations on MySQL.
       await tx.room.update({ where: { id: roomId }, data: { updatedAt: room.updatedAt } })
       if (inviteCode && (await this.invite(inviteCode, tx)).roomId !== roomId) return fail(404, 'NOT_FOUND', '聊天室不存在')
@@ -98,7 +158,7 @@ export class Rooms {
         if (!attachment || attachment.roomId !== roomId || attachment.userId !== userId || attachment.message) return fail(403, 'INVALID_ATTACHMENT', '附件不可用')
         if (attachmentExpired(attachment, new Date(this.now()))) return fail(410, 'ATTACHMENT_EXPIRED', '图片已过期')
       }
-      const updated = await tx.room.update({ where: { id: roomId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date() } })
+      const updated = await tx.room.update({ where: { id: roomId }, data: { lastSeq: { increment: 1 }, updatedAt: new Date(), activeAt: new Date(this.roomNow()) } })
       const message = await tx.message.create({ data: { roomId, userId, seq: updated.lastSeq, clientMessageId: input.clientMessageId, text: input.text, attachmentId: input.attachmentId }, include: messageInclude })
       return { message: messageDto(message, this.now()), created: true }
     })

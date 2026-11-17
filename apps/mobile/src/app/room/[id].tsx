@@ -28,7 +28,7 @@ export default function Room() {
         }
         setRoomName(data.data.name)
         
-        const socketInstance = io(API_BASE, {
+        const socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> = io(API_BASE, {
           transports: ['websocket', 'polling'],
           withCredentials: true,
           reconnectionDelay: 800,
@@ -36,9 +36,10 @@ export default function Room() {
         })
         
         socketInstance.on('connect', () => {
-          socketInstance.emit('room:subscribe', { roomId: id }, (err, result) => {
-            if (err || 'error' in result) {
-              console.error('Subscribe error:', err || result.error)
+          // Socket.IO acknowledgements carry a single Result payload.
+          socketInstance.emit('room:subscribe', { roomId: id }, result => {
+            if ('error' in result) {
+              console.error('Subscribe error:', result.error)
               return
             }
             setMessages(result.data.messages)

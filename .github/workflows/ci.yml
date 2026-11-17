@@ -29,13 +29,14 @@ jobs:
           DATABASE_URL: file:./ci.db
       - run: bun run typecheck
       - run: bun test packages/contracts/tests apps/server/tests scripts/*.test.ts
-      - run: bun audit
       - run: bun run build
       - run: bunx playwright install --with-deps chromium
       - run: bun x playwright test --config playwright.ui.config.ts
         working-directory: apps/web
       - run: bun run test:e2e
       - run: bun run test:e2e:artifact
+      # Still a required gate; run last so an advisory never hides browser results.
+      - run: bun audit
       - uses: actions/upload-artifact@v4
         if: always()
         with:

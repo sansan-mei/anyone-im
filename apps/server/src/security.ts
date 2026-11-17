@@ -77,6 +77,39 @@ export function createRateLimiter(overrides: Partial<Record<RateLimitKind, numbe
     if (entry.count > limits[kind]!) return fail(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试')
   }
 }
+export interface AttemptLockOptions { perClient?: number; perCode?: number; lockMs?: number }
+/**
+ * Lockout for short room codes. A client is locked after consecutive failures on
+ * one code; a code is locked after many failures from any clients in one window.
+ * The production client IP is the reverse proxy, so clients are session hashes.
+ */
+export function createAttemptLock(now: () => number, { perClient = 5, perCode = 50, lockMs = 15 * 60000 }: AttemptLockOptions = {}) {
+  const entries = new Map<string, { failures: number; windowEnds: number; lockedUntil: number }>()
+  const read = (key: string, at: number) => {
+    let entry = entries.get(key)
+    if (entry && entry.lockedUntil <= at && entry.windowEnds <= at) { entries.delete(key); entry = undefined }
+    return entry
+  }
+  const locked = (key: string, at: number) => (read(key, at)?.lockedUntil ?? 0) > at
+  return {
+    check(client: string, code: string) {
+      const at = now()
+      if (locked(`client:${client}:${code}`, at) || locked(`code:${code}`, at)) return fail(429, 'TOO_MANY_ATTEMPTS', '尝试次数过多，请 15 分钟后再试')
+    },
+    failure(client: string, code: string) {
+      const at = now()
+      if (entries.size >= 10000) for (const key of [...entries.keys()]) read(key, at)
+      for (const [key, limit] of [[`client:${client}:${code}`, perClient], [`code:${code}`, perCode]] as const) {
+        if (entries.size >= 10000 && !entries.has(key)) continue
+        const entry = read(key, at) ?? { failures: 0, windowEnds: at + lockMs, lockedUntil: 0 }
+        entry.failures++
+        if (entry.failures >= limit) { entry.lockedUntil = at + lockMs; entry.windowEnds = at + lockMs; entry.failures = 0 }
+        entries.set(key, entry)
+      }
+    },
+    success(client: string, code: string) { entries.delete(`client:${client}:${code}`) }
+  }
+}
 export function errorBody(error: unknown) {
   return { error: error instanceof ApiFailure ? { code: error.code, message: error.message } : { code: 'INTERNAL_ERROR', message: '服务暂时不可用' } }
 }

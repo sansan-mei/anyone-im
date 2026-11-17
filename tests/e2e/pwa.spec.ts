@@ -159,7 +159,7 @@ for (const modal of ['create', 'discover', 'invite', 'profile', 'details'] as co
       await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
       if (modal !== 'invite') {
         await page.getByTestId('room-lobby').click()
-        const button = { create: '新建房间', discover: '发现公开房间', profile: '个人设置', details: '房间详情' }[modal]
+        const button = { create: '新建房间', discover: '加入房间', profile: '个人设置', details: '房间详情' }[modal]
         await page.getByRole('button', { name: button, exact: true }).click()
       }
       await expect(page.getByRole('dialog')).toBeVisible()

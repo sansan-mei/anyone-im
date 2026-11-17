@@ -117,8 +117,8 @@ for (const requested of ['', room.id, 'unjoined-private-room']) test(`an interru
   expect(f.roomReads).toBe(2)
   if (requested === room.id) await expect.poll(() => new URL(page.url()).searchParams.has('room')).toBe(false)
   else if (requested) {
-    await expect(page.getByRole('dialog', { name: '发现公开房间', exact: true })).toBeVisible()
-    await expect(page.getByLabel('私密房间 ID', { exact: true })).toHaveValue(requested)
+    await expect(page.getByRole('dialog', { name: '加入房间', exact: true })).toBeVisible()
+    await expect(page.getByLabel('入房链接 ID', { exact: true })).toHaveValue(requested)
   } else await expect(page.getByText(message.text, { exact: true })).toBeVisible()
 })
 

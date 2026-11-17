@@ -254,7 +254,7 @@ test('room lifecycle: create private room, inspect live members, invite, revoke 
   const created = { ...room, id: 'fixture-created', name: '新项目', description: '项目协调', memberCount: 2 }
   const peer = { ...user, id: 'fixture-peer', displayName: '另一个成员' }
   await page.route('**/api/rooms', async route => {
-    if (route.request().method() === 'POST') { expect(route.request().postDataJSON()).toEqual({ name: '新项目', description: '项目协调', visibility: 'private', password: 'fixture-room-password' }); return route.fulfill({ json: { data: created } }) }
+    if (route.request().method() === 'POST') { expect(route.request().postDataJSON()).toEqual({ name: '新项目', description: '项目协调', visibility: 'private', lifetime: 'short', password: 'fixture-room-password' }); return route.fulfill({ json: { data: created } }) }
     return route.fallback()
   })
   await page.route('**/api/rooms/fixture-created/members', route => route.fulfill({ json: { data: { members: [{ user, role: 'owner', online: true }, { user: peer, role: 'member', online: false }] } } }))
@@ -286,7 +286,7 @@ test('public discovery joins only on request, search filters member rooms and no
   await page.route('**/api/rooms/public', route => route.fulfill({ json: { data: { rooms: [publicRoom] } } }))
   await page.route('**/api/rooms/fixture-public/join', route => route.fulfill({ json: { data: publicRoom } }))
   await page.goto('/')
-  await page.getByRole('button', { name: '发现公开房间' }).click()
+  await page.getByRole('button', { name: '加入房间', exact: true }).click()
   await expect(page.getByRole('heading', { name: '发现公开房间' })).toBeVisible()
   await page.getByRole('button', { name: '加入 开放空间' }).click()
   await expect(page.getByRole('heading', { name: '开放空间', exact: true })).toBeVisible()

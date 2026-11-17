@@ -12,7 +12,7 @@ test('bounded journal rejects restart and overflow cursors rather than returning
 
 test('history pages include a baseline while preserving legacy before/after pagination', async () => {
   const queries: any[] = []
-  const db = { membership: { findUnique: async () => ({ active: true, banned: false }) }, message: { findMany: async (query: unknown) => { queries.push(query); return [] } } } as unknown as ConstructorParameters<typeof Rooms>[0]
+  const db = { membership: { findUnique: async () => ({ active: true, banned: false, room: { id: 'r', lifetime: 'long', expiresAt: null, activeAt: new Date() } }) }, message: { findMany: async (query: unknown) => { queries.push(query); return [] } } } as unknown as ConstructorParameters<typeof Rooms>[0]
   const rooms = new Rooms(db)
   const initial = await rooms.page('r', 'u')
   expect(initial).toMatchObject({ messages: [], hasMore: false, changeCursor: { revision: 0 } })
