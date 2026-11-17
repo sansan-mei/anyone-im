@@ -33,12 +33,18 @@ model Room {
   description String @default("")
   visibility String @default("private")
   passwordHash String?
+  code String? @unique
+  lifetime String @default("long")
+  expiresAt DateTime?
+  activeAt DateTime @default(now())
   lastSeq Int @default(0)
   updatedAt DateTime @default(now())
   memberships Membership[]
   messages Message[]
   invites Invite[]
   attachments Attachment[]
+  @@index([expiresAt])
+  @@index([lifetime, activeAt])
 }
 model Membership {
   roomId String

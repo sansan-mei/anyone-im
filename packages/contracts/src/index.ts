@@ -9,8 +9,10 @@ export const loginSchema = z.object({ username: usernameSchema, password: z.stri
 export const updateProfileSchema = z.object({ displayName: displayNameSchema }).strict()
 export const roomPasswordSchema = z.string().min(6).max(128)
 export const joinRoomSchema = z.object({ password: z.string().max(128).optional() }).strict()
+export const roomCodeSchema = z.string().regex(/^\d{6}$/)
+export const joinByCodeSchema = z.object({ code: roomCodeSchema, password: z.string().max(128).optional() }).strict()
 export const updateRoomPasswordSchema = z.object({ password: roomPasswordSchema }).strict()
-export const createRoomSchema = z.object({ name: z.string().trim().min(1).max(64), description: z.string().trim().max(240).default(''), visibility: z.enum(['public', 'private']).default('private'), password: roomPasswordSchema.optional() }).strict().refine(v => v.visibility === 'public' || v.password !== undefined, { message: '私密房间需要 6–128 位密码' })
+export const createRoomSchema = z.object({ name: z.string().trim().min(1).max(64), description: z.string().trim().max(240).default(''), visibility: z.enum(['public', 'private']).default('private'), lifetime: z.enum(['short', 'long']).default('long'), password: roomPasswordSchema.optional() }).strict().refine(v => v.visibility === 'public' || v.password !== undefined, { message: '私密房间需要 6–128 位密码' })
 const messageFields = { clientMessageId: z.uuid(), text: z.string().trim().max(4000).default(''), attachmentId: z.uuid().optional() }
 export const sendMessageSchema = z.object(messageFields).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
 export const socketSendMessageSchema = z.object({ ...messageFields, roomId: z.string().min(1).max(64) }).strict().refine((v) => !!v.text || !!v.attachmentId, { message: '消息不能为空' })
@@ -41,11 +43,19 @@ export interface Message {
   deletedAt: string | null
 }
 export type RoomRole = 'owner' | 'member'
+export type RoomLifetime = 'short' | 'long'
+export const SHORT_ROOM_TTL_MS = 12 * 60 * 60 * 1000
+export const LONG_ROOM_IDLE_MS = 7 * 24 * 60 * 60 * 1000
 export interface RoomSummary {
   id: string
   name: string
   description: string
   visibility: 'public' | 'private'
+  /** Six-digit entry code; null only before a legacy room is backfilled. */
+  code: string | null
+  lifetime: RoomLifetime
+  /** When the room closes and its history is erased; null for the permanent lobby. */
+  expiresAt: string | null
   role: RoomRole
   memberCount: number
   onlineCount: number
@@ -63,7 +73,7 @@ export interface MessagePage { messages: Message[]; hasMore: boolean; changeCurs
 export interface Invite { code: string; urlPath: string; expiresAt: string }
 export interface InvitePreview { roomId: string; roomName: string; expiresAt: string }
 export interface SendMessageInput { clientMessageId: string; text: string; attachmentId?: string }
-export interface CreateRoomInput { name: string; description: string; visibility: 'public' | 'private'; password?: string }
+export interface CreateRoomInput { name: string; description: string; visibility: 'public' | 'private'; lifetime?: RoomLifetime; password?: string }
 export interface ServerToClientEvents {
   'message:new': (message: Message) => void
   'message:deleted': (event: MessageDeletion) => void

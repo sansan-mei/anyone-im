@@ -26,16 +26,21 @@ export async function clearExpiredAttachmentBytes(db: Pick<PrismaClient, 'attach
 /** Erase binary resources, retaining only a small tombstone for stable chat IDs. */
 export function createAttachmentRetention(db: Pick<PrismaClient, 'attachment'>, gate: Gate, now = () => new Date(), intervalMs = 60000) {
   if (!Number.isSafeInteger(intervalMs) || intervalMs < 1) throw new Error('Invalid retention interval')
+  return createPeriodic(gate, () => clearExpiredAttachmentBytes(db, now()), intervalMs, 'Attachment retention sweep failed; retrying on next interval')
+}
+/** Coalesced, gated background job: overlapping triggers share one run; stop waits for it. */
+export function createPeriodic(gate: Gate, job: () => Promise<number>, intervalMs: number, failureMessage: string) {
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1) throw new Error('Invalid sweep interval')
   let stopped = false
   let active: Promise<number> | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   const run = (): Promise<number> => {
     if (stopped) return Promise.resolve(0)
     if (active) return active
-    active = gate(() => clearExpiredAttachmentBytes(db, now())).finally(() => { active = undefined })
+    active = gate(job).finally(() => { active = undefined })
     return active
   }
-  const tick = () => { void run().catch(() => { console.warn('Attachment retention sweep failed; retrying on next interval') }) }
+  const tick = () => { void run().catch(() => { console.warn(failureMessage) }) }
   return {
     run,
     start() {

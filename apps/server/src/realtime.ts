@@ -55,6 +55,13 @@ export function createRealtime(rooms: Rooms, session: (hash: string | null) => P
     await presence(roomId)
     await publish(roomId, 'room:updated', { roomId })
   }
+  function closeRoom(roomId: string) {
+    for (const s of sockets.values()) if (s.data.rooms.has(roomId)) {
+      s.data.rooms.delete(roomId)
+      void s.leave(`room:${roomId}`)
+      s.emit('room:removed', { roomId, reason: 'closed' })
+    }
+  }
   function disconnectSession(hash: string) { for (const s of sockets.values()) if (s.data.sessionId === hash) s.disconnect(true) }
   io.use((socket, next) => {
     void session(sessionHash(socket.handshake.headers.cookie ?? null)).then(s => {
@@ -125,5 +132,5 @@ export function createRealtime(rooms: Rooms, session: (hash: string | null) => P
       for (const m of memberships) await add(socket, m.roomId)
     }).catch(() => socket.disconnect(true))
   })
-  return { engine, io, publish, joinUser, removeUser, disconnectSession, close() { for (const timer of timers.values()) clearTimeout(timer); timers.clear(); io.disconnectSockets(true); engine.close() } }
+  return { engine, io, publish, joinUser, removeUser, closeRoom, disconnectSession, close() { for (const timer of timers.values()) clearTimeout(timer); timers.clear(); io.disconnectSockets(true); engine.close() } }
 }

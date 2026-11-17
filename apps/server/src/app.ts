@@ -1,17 +1,17 @@
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { RateLimitKind } from './security'
+import type { AttemptLockOptions, RateLimitKind } from './security'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, joinRoomSchema, updateRoomPasswordSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
+import { guestSchema, loginSchema, registerSchema, updateProfileSchema, createRoomSchema, joinRoomSchema, joinByCodeSchema, updateRoomPasswordSchema, sendMessageSchema, readSchema, EXPECTED_USER_HEADER, MAX_ATTACHMENT_BYTES } from '@anyone-im/contracts'
 import { Rooms } from './rooms'
 import { Attachments } from './attachments'
-import { createAttachmentRetention } from './attachment-retention'
+import { createAttachmentRetention, createPeriodic } from './attachment-retention'
 import { createRealtime } from './realtime'
 import { frontendResponse } from './frontend'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { PrismaClient } from '../generated/client'
-import { ApiFailure, createGate, errorBody, fail, parse, randomToken, sessionHash, hashToken, userDto, readLimited, createRateLimiter, DEFAULT_BODY_READ_TIMEOUT_MS } from './security'
+import { ApiFailure, createGate, errorBody, fail, parse, randomToken, sessionHash, hashToken, userDto, readLimited, createRateLimiter, createAttemptLock, DEFAULT_BODY_READ_TIMEOUT_MS } from './security'
 
 export interface ApplicationOptions {
   port?: number
@@ -27,6 +27,7 @@ export interface ApplicationOptions {
   attachmentCleanup?: boolean
   attachmentCleanupIntervalMs?: number
   attachmentRetention?: { now?: () => number; intervalMs?: number }
+  roomLifecycle?: { now?: () => number; intervalMs?: number; sweep?: boolean; codes?: () => string; codeLockout?: AttemptLockOptions }
 }
 export async function createApplication(options: ApplicationOptions = {}) {
   const attachmentNow = options.attachmentRetention?.now ?? (() => Date.now())
@@ -60,6 +61,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
   }
   let cleanupRealtime: (() => void) | undefined
   let retention: ReturnType<typeof createAttachmentRetention> | undefined
+  let roomSweep: ReturnType<typeof createPeriodic> | undefined
   try {
   await db.$connect()
   retention = createAttachmentRetention(db, gate, () => new Date(attachmentNow()), options.attachmentCleanupIntervalMs ?? options.attachmentRetention?.intervalMs)
@@ -77,7 +79,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       if (!checkOrigin(c.req.raw)) return fail(403, 'ORIGIN_REJECTED', '请求来源无效')
       if (/^\/api\/auth\/(guest|register|login)$/.test(c.req.path)) rateLimit('AUTH', ip)
-      else if (/\/(join|invites|password)$/.test(c.req.path) || c.req.path.startsWith('/api/invites/')) rateLimit('JOIN', sessionHash(c.req.header('cookie') ?? null) ?? ip)
+      else if (/\/(join|join-by-code|invites|password)$/.test(c.req.path) || c.req.path.startsWith('/api/invites/')) rateLimit('JOIN', sessionHash(c.req.header('cookie') ?? null) ?? ip)
       if (!/\/attachments$/.test(c.req.path)) {
         const bytes = await readLimited(c.req.raw, 16384, bodyReadTimeoutMs)
         let value: unknown = {}
@@ -85,7 +87,7 @@ export async function createApplication(options: ApplicationOptions = {}) {
           if (!c.req.header('content-type')?.startsWith('application/json')) return fail(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用JSON格式')
           try { value = JSON.parse(new TextDecoder().decode(bytes)) } catch { return fail(400, 'INVALID_INPUT', 'JSON无效') }
         }
-        const shaped = /\/auth\/(guest|register|login)$|\/me$|^\/api\/rooms$|\/rooms\/[^/]+\/(messages|read|join|password)$/.test(c.req.path)
+        const shaped = /\/auth\/(guest|register|login)$|\/me$|^\/api\/rooms$|^\/api\/rooms\/join-by-code$|\/rooms\/[^/]+\/(messages|read|join|password)$/.test(c.req.path)
         if (!shaped && (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length)) return fail(400, 'INVALID_INPUT', '请求参数无效')
         preparedJson.set(c.req.raw, value)
       }
@@ -181,7 +183,9 @@ export async function createApplication(options: ApplicationOptions = {}) {
       return c.json({ data: userDto(user) })
     })
   })
-  const rooms = new Rooms(db, attachmentNow)
+  const roomNow = options.roomLifecycle?.now ?? (() => Date.now())
+  const rooms = new Rooms(db, attachmentNow, roomNow, options.roomLifecycle?.codes)
+  const codeLock = createAttemptLock(roomNow, options.roomLifecycle?.codeLockout)
   const attachments = new Attachments(rooms)
   app.post('/api/rooms/:id/attachments', async c => {
     await gate(async () => {
@@ -202,16 +206,21 @@ export async function createApplication(options: ApplicationOptions = {}) {
   }))
   const realtime = createRealtime(rooms, session, gate, checkOrigin, rateLimit)
   cleanupRealtime = realtime.close
+  roomSweep = createPeriodic(gate, async () => {
+    const closed = await rooms.closeExpired()
+    for (const { roomId } of closed) realtime.closeRoom(roomId)
+    return closed.length
+  }, options.roomLifecycle?.intervalMs ?? 60000, 'Room lifecycle sweep failed; retrying on next interval')
   app.all('/socket.io/', c => realtime.engine.handleRequest(c.req.raw, c.env))
   app.get('/api/rooms', async c => gate(async () => {
     const s = await auth(c.req.raw)
     const memberships = await db.membership.findMany({ where: { userId: s.userId, active: true, banned: false }, include: { room: true }, orderBy: { room: { updatedAt: 'desc' } } })
-    return c.json({ data: { rooms: await Promise.all(memberships.map(m => rooms.summary(m.roomId, s.userId))) } })
+    return c.json({ data: { rooms: await Promise.all(memberships.filter(m => !rooms.closed(m.room)).map(m => rooms.summary(m.roomId, s.userId))) } })
   }))
   app.get('/api/rooms/public', async c => gate(async () => {
     const s = await auth(c.req.raw)
     const publicRooms = await db.room.findMany({ where: { visibility: 'public', memberships: { none: { userId: s.userId, banned: true } } }, orderBy: { updatedAt: 'desc' }, take: 100 })
-    return c.json({ data: { rooms: await Promise.all(publicRooms.map(r => rooms.summary(r.id, s.userId))) } })
+    return c.json({ data: { rooms: await Promise.all(publicRooms.filter(r => !rooms.closed(r)).map(r => rooms.summary(r.id, s.userId))) } })
   }))
   app.post('/api/rooms', async c => {
     await gate(async () => { const s = await auth(c.req.raw); rateLimit('JOIN', s.id) })
@@ -224,26 +233,41 @@ export async function createApplication(options: ApplicationOptions = {}) {
       return c.json({ data: room })
     })
   })
-  app.post('/api/rooms/:id/join', async c => {
-    const input = parse(joinRoomSchema, await json(c))
+  // Password verification runs outside the gate; the join re-checks the verified hash.
+  async function passwordJoin(request: Request, where: { id: string } | { code: string }, password: string | undefined, notFound: string) {
+    const code = 'code' in where ? where.code : undefined
     const snapshot = await gate(async () => {
-      const s = await auth(c.req.raw)
-      const room = await db.room.findUnique({ where: { id: c.req.param('id') }, select: { visibility: true, passwordHash: true } })
-      return { userId: s.userId, room }
+      const s = await auth(request)
+      if (code) codeLock.check(s.id, code)
+      const room = await db.room.findUnique({ where, select: { id: true, visibility: true, passwordHash: true, lifetime: true, expiresAt: true, activeAt: true } })
+      return { userId: s.userId, sessionId: s.id, room: room && !rooms.closed(room) ? room : null }
     })
     let verifiedHash: string | undefined
-    if (snapshot.room?.visibility !== 'public') {
-      const valid = await passwordWork(() => Bun.password.verify(input.password ?? '', snapshot.room?.passwordHash ?? dummyPasswordHash))
-      if (!snapshot.room?.passwordHash || !valid) return fail(404, 'NOT_FOUND', '聊天室不存在')
+    if (!snapshot.room || snapshot.room.visibility !== 'public') {
+      const valid = await passwordWork(() => Bun.password.verify(password ?? '', snapshot.room?.passwordHash ?? dummyPasswordHash))
+      if (!snapshot.room?.passwordHash || !valid) {
+        if (code) codeLock.failure(snapshot.sessionId, code)
+        return fail(404, 'NOT_FOUND', notFound)
+      }
       verifiedHash = snapshot.room.passwordHash
     }
+    if (code) codeLock.success(snapshot.sessionId, code)
+    const roomId = snapshot.room.id
     return gate(async () => {
-      const s = await auth(c.req.raw)
+      const s = await auth(request)
       if (s.userId !== snapshot.userId) return fail(409, 'SESSION_CHANGED', '登录身份已更改，请刷新后重试')
-      const room = await rooms.join(c.req.param('id'), s.userId, undefined, verifiedHash)
+      const room = await rooms.join(roomId, s.userId, undefined, verifiedHash)
       await realtime.joinUser(room.id, s.userId)
-      return c.json({ data: room })
+      return room
     })
+  }
+  app.post('/api/rooms/join-by-code', async c => {
+    const input = parse(joinByCodeSchema, await json(c))
+    return c.json({ data: await passwordJoin(c.req.raw, { code: input.code }, input.password, '房间码或密码错误') })
+  })
+  app.post('/api/rooms/:id/join', async c => {
+    const input = parse(joinRoomSchema, await json(c))
+    return c.json({ data: await passwordJoin(c.req.raw, { id: c.req.param('id') }, input.password, '聊天室不存在') })
   })
   app.patch('/api/rooms/:id/password', async c => {
     const input = parse(updateRoomPasswordSchema, await json(c))
@@ -262,6 +286,13 @@ export async function createApplication(options: ApplicationOptions = {}) {
       return c.json({ data: null })
     })
   })
+  app.delete('/api/rooms/:id', async c => gate(async () => {
+    const s = await auth(c.req.raw), roomId = c.req.param('id')
+    await rooms.member(roomId, s.userId, db, true)
+    if (!await rooms.destroy(roomId)) return fail(403, 'FORBIDDEN', '无权访问此聊天室')
+    realtime.closeRoom(roomId)
+    return c.json({ data: null })
+  }))
   app.post('/api/rooms/:id/leave', async c => gate(async () => {
     const s = await auth(c.req.raw)
     await rooms.remove(c.req.param('id'), s.userId, s.userId, false)
@@ -335,8 +366,9 @@ export async function createApplication(options: ApplicationOptions = {}) {
   const server = Bun.serve({ ...realtime.engine.handler(), hostname: options.host ?? process.env.HOST ?? '127.0.0.1', port: options.port ?? Number(process.env.PORT ?? 4100), maxRequestBodySize: MAX_ATTACHMENT_BYTES + 65536, fetch: (request, server) => app.fetch(request, server) })
   listenerOrigin ??= `http://${server.hostname}:${server.port}`
   if (options.attachmentCleanup !== false) retention.start()
+  if (options.roomLifecycle?.sweep !== false) roomSweep.start()
   let closePromise: Promise<void> | undefined
-  const close = () => closePromise ??= (async () => { realtime.close(); await retention?.stop(); await server.stop(true); await gate(async () => {}); await db.$disconnect() })()
-  return { url: `http://${server.hostname}:${server.port}`, server, close, cleanupExpiredAttachments: retention.run }
-  } catch (error) { cleanupRealtime?.(); await retention?.stop(); await db.$disconnect(); throw error }
+  const close = () => closePromise ??= (async () => { realtime.close(); await retention?.stop(); await roomSweep?.stop(); await server.stop(true); await gate(async () => {}); await db.$disconnect() })()
+  return { url: `http://${server.hostname}:${server.port}`, server, close, cleanupExpiredAttachments: retention.run, closeExpiredRooms: roomSweep.run }
+  } catch (error) { cleanupRealtime?.(); await retention?.stop(); await roomSweep?.stop(); await db.$disconnect(); throw error }
 }
