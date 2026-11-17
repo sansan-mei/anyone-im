@@ -286,7 +286,7 @@ test('public discovery joins only on request, search filters member rooms and no
   await page.route('**/api/rooms/public', route => route.fulfill({ json: { data: { rooms: [publicRoom] } } }))
   await page.route('**/api/rooms/fixture-public/join', route => route.fulfill({ json: { data: publicRoom } }))
   await page.goto('/')
-  await page.getByRole('button', { name: '发现公开房间' }).click()
+  await page.getByRole('button', { name: '加入房间', exact: true }).click()
   await expect(page.getByRole('heading', { name: '发现公开房间' })).toBeVisible()
   await page.getByRole('button', { name: '加入 开放空间' }).click()
   await expect(page.getByRole('heading', { name: '开放空间', exact: true })).toBeVisible()

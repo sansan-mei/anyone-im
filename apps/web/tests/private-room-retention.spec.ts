@@ -18,7 +18,7 @@ test('private creation defaults to password entry and never auto-generates invit
   page.on('request', r => { if (r.method() === 'POST') posts.push(new URL(r.url()).pathname) })
   await page.route('**/api/rooms', route => {
     if (route.request().method() !== 'POST') return route.fallback()
-    expect(route.request().postDataJSON()).toEqual({ name: '密码空间', description: '', visibility: 'private', password: 'only in memory' })
+    expect(route.request().postDataJSON()).toEqual({ name: '密码空间', description: '', visibility: 'private', lifetime: 'short', password: 'only in memory' })
     return route.fulfill({ json: { data: room } })
   })
   await page.goto('/')
@@ -40,7 +40,7 @@ test('closing creation clears only the password draft, and public creation omits
   await fixture(page)
   await page.route('**/api/rooms', route => {
     if (route.request().method() !== 'POST') return route.fallback()
-    expect(route.request().postDataJSON()).toEqual({ name: '保留名称', description: '保留介绍', visibility: 'public' })
+    expect(route.request().postDataJSON()).toEqual({ name: '保留名称', description: '保留介绍', visibility: 'public', lifetime: 'short' })
     return route.fulfill({ json: { data: { ...room, name: '保留名称', visibility: 'public' } } })
   })
   await page.goto('/')
@@ -68,13 +68,14 @@ test('room-id links open a password join dialog; discovery also exposes private 
     return route.fulfill({ json: { data: room } })
   })
   await page.goto('/?room=retention-private')
-  const dialog = page.getByRole('dialog', { name: '发现公开房间' })
-  await expect(dialog.getByLabel('私密房间 ID')).toHaveValue(room.id)
+  const dialog = page.getByRole('dialog', { name: '加入房间' })
+  await expect(dialog.getByLabel('入房链接 ID')).toHaveValue(room.id)
   await dialog.getByLabel('房间密码', { exact: true }).fill('join secret')
-  await dialog.getByRole('button', { name: '密码加入私密房间' }).click()
+  await dialog.getByRole('button', { name: '进入房间' }).click()
   await expect(page.getByRole('heading', { name: room.name, exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '发现公开房间' }).click()
-  await expect(page.getByLabel('私密房间 ID')).toBeVisible()
+  await page.getByRole('button', { name: '加入房间', exact: true }).click()
+  await expect(page.getByLabel('房间码', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('入房链接 ID')).toHaveCount(0)
 })
 
 test('owner can set a new password and share a password-free room-id link independently of invites', async ({ page }) => {
