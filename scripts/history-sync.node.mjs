@@ -272,15 +272,15 @@ test('overflow and restart force authoritative fallback, not partial tombstones'
 })
 
 function roomsClass() {
-  const text = source('apps/server/src/rooms.ts').replace('constructor(readonly db: PrismaClient, readonly now = () => Date.now()) {}', 'constructor(db, now = () => Date.now()) { this.db = db; this.now = now }')
+  const text = source('apps/server/src/rooms.ts')
   const plain = stripTypeScriptTypes(text, { mode: 'strip' }).replace(/^import .*$/gm, '').replace(/\bexport /g, '')
-  return runInNewContext(`${plain}\nRooms`, { ChangeJournal: journal(), Date, DEFAULT_MESSAGE_PAGE_SIZE: 15, MAX_MESSAGE_PAGE_SIZE: 20, fail: (status, code) => { throw new Error(`${status}:${code}`) } })
+  return runInNewContext(`${plain}\nRooms`, { ChangeJournal: journal(), Date, DEFAULT_MESSAGE_PAGE_SIZE: 15, MAX_MESSAGE_PAGE_SIZE: 20, SHORT_ROOM_TTL_MS: 12 * 3600000, LONG_ROOM_IDLE_MS: 7 * 86400000, fail: (status, code) => { throw new Error(`${status}:${code}`) } })
 }
 test('Rooms journals only after transaction commit; rollback emits no revision', async () => {
   const Rooms = roomsClass()
   let commit, reject, transactionDone = false
   const db = {
-    membership: { findUnique: async () => ({ active: true, role: 'owner' }) },
+    membership: { findUnique: async () => ({ active: true, role: 'owner', room: { id: 'room', lifetime: 'long', expiresAt: null, activeAt: new Date() } }) },
     message: { findUnique: async () => ({ id: 'm', roomId: 'room', seq: 1, userId: 'u', deletedAt: null }), update: async () => {} },
     $transaction: async fn => { const result = await fn(db); await new Promise((resolve, fail) => { commit = resolve; reject = fail }); transactionDone = true; return result }
   }

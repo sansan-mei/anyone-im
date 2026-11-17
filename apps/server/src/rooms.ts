@@ -29,7 +29,15 @@ export function messageDto(m: StoredMessage, now = Date.now()): MessageDTO {
 export class Rooms {
   readonly changes = new ChangeJournal()
   online = (_roomId: string, _userId?: string): number => 0
-  constructor(readonly db: PrismaClient, readonly now = () => Date.now(), readonly roomNow = () => Date.now(), readonly codes = randomRoomCode) {}
+  readonly db: PrismaClient
+  readonly now: () => number
+  /** Room lifecycle clock, separate from the attachment clock so each can be tested alone. */
+  readonly roomNow: () => number
+  readonly codes: () => string
+  // Plain assignments (no parameter properties) keep this file strip-only compatible.
+  constructor(db: PrismaClient, now = () => Date.now(), roomNow = () => Date.now(), codes = randomRoomCode) {
+    this.db = db; this.now = now; this.roomNow = roomNow; this.codes = codes
+  }
   async member(roomId: string, userId: string, tx: Database = this.db, owner = false) {
     const m = await tx.membership.findUnique({ where: { roomId_userId: { roomId, userId } }, include: { room: { select: lifecycleSelect } } })
     if (!m?.active || m.banned || (owner && m.role !== 'owner')) return fail(403, 'FORBIDDEN', '无权访问此聊天室')
