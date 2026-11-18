@@ -36,7 +36,9 @@ jobs:
       - run: bun run test:e2e
       - run: bun run test:e2e:artifact
       # Still a required gate; run last so an advisory never hides browser results.
-      - run: bun audit
+      # GHSA-fc5q-39xc-vjpf: picomatch <=4.0.7 ReDoS via vite's build-time globbing;
+      # no patched release exists yet and it is not in the runtime image. Remove once fixed.
+      - run: bun audit --ignore=GHSA-fc5q-39xc-vjpf
       - uses: actions/upload-artifact@v4
         if: always()
         with:
