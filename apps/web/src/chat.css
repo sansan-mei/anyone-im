@@ -516,3 +516,10 @@
     padding: 6px 14px;
   }
 }
+
+/* One meta line: the code stays whole, member/visibility text truncates first. */
+.chat-header p { min-width: 0; flex-wrap: nowrap; }
+.chat-meta { display: flex; min-width: 0; white-space: nowrap; }
+.chat-meta-code { flex: none; }
+.chat-meta-rest { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chat-header .presence-dot { flex: none; }

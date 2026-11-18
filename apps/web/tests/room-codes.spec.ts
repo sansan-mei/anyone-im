@@ -84,3 +84,21 @@ test('details show the code and closing time; the owner can destroy the room', a
   await expect(page.getByTestId('room-code-room')).toHaveCount(0)
   expect(destroyed).toBe(true)
 })
+
+for (const width of [320, 360, 412]) test(`the chat header keeps code and room meta on one line at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 800 })
+  await fixture(page, [{ ...room, id: 'lobby', name: '大厅', visibility: 'public', lifetime: 'long', expiresAt: null, memberCount: 6 }])
+  await page.goto('/')
+  await page.getByTestId('room-lobby').click()
+  const meta = page.locator('.chat-header p')
+  await expect(page.getByTestId('room-code')).toHaveText('042917')
+  const lineHeight = await meta.evaluate(el => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.6)
+  const box = (await meta.boundingBox())!
+  // A wrapped meta line (e.g. 房间/码 stacked) is at least two lines tall.
+  expect(box.height).toBeLessThan(lineHeight * 1.5)
+  // The code itself is never clipped: it is the first, most useful item.
+  const code = (await page.getByTestId('room-code').boundingBox())!
+  expect(code.x + code.width).toBeLessThanOrEqual(box.x + box.width + 0.5)
+  const label = (await page.getByText('房间码', { exact: true }).boundingBox())!
+  expect(label.height).toBeLessThan(lineHeight * 1.5)
+})
